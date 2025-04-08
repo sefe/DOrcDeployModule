@@ -2,7 +2,7 @@
 [ValidateNotNullOrEmpty()]$ProjectDir=$Env:BUILD_SOURCESDIRECTORY,
 [ValidateNotNullOrEmpty()][System.String]$BuildNumber = $Env:BUILD_BUILDNUMBER
 )
-$manifest=join-path -Path $ProjectDir  -ChildPath ".\Internal-DOrcDeployModule.psd1"
+$manifest=join-path -Path $ProjectDir  -ChildPath ".\DOrcDeployModule.psd1"
 write-host "Using manifest: " $manifest
 $version=[version]$(Import-PowerShellDataFile $manifest).ModuleVersion
 if (-not $BuildNumber)
