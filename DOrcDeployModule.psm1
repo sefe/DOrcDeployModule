@@ -2271,7 +2271,7 @@ Function DeployMSI {
 
                             try {
                                 foreach ($product in $using:ProductNames) {
-                                    if ((Internal-DOrcDeployModule\RemoveMSI $using:serverName $using:msiFullPath $product)) {
+                                    if ((DOrcDeployModule\RemoveMSI $using:serverName $using:msiFullPath $product)) {
                                         Write-Host "[INFO][DeployMSI][$(Get-Date)] Uninstalled $product from $($using:serverName)"
                                     }
                                     else {
@@ -2279,7 +2279,7 @@ Function DeployMSI {
                                     }
                                 }
                                 
-                                if (Internal-DOrcDeployModule\InstallMSI $using:serverName $using:msiFullPath $using:msiArgs) {
+                                if (DOrcDeployModule\InstallMSI $using:serverName $using:msiFullPath $using:msiArgs) {
                                     Write-Host "[INFO][DeployMSI][$(Get-Date)] Install ok..."
                                 }
                                 else {
