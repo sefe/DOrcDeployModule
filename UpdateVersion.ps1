@@ -1,6 +1,6 @@
-﻿param(
-[ValidateNotNullOrEmpty()]$ProjectDir=$Env:BUILD_SOURCESDIRECTORY,
-[ValidateNotNullOrEmpty()][System.String]$BuildNumber = $Env:BUILD_BUILDNUMBER
+param(
+    [ValidateNotNullOrEmpty()]$ProjectDir = $Env:GITHUB_WORKSPACE,
+    [ValidateNotNullOrEmpty()][System.String]$BuildNumber = $Env:GITHUB_RUN_NUMBER
 )
 $manifest=join-path -Path $ProjectDir  -ChildPath ".\DOrcDeployModule.psd1"
 write-host "Using manifest: " $manifest
