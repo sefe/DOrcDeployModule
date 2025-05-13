@@ -1,6 +1,6 @@
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-Import-Module "$here\Internal-DOrcDeployModule.psm1" -ErrorAction Stop
+Import-Module "$here\DOrcDeployModule.psm1" -ErrorAction Stop
 
 Describe "Get-DorcCredSSPStatus tests" {
     Context "Computer reachable"{
