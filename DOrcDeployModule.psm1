@@ -906,7 +906,7 @@ function Stop-Services {
                     write-host "      Attempt to stop number:" ($i + 1)
                     Invoke-Command -ComputerName $strComputer { param($strService) Stop-Service $strService -Force} -Args $strService
                     Start-Sleep $retryTime
-                    $oService = Get-Service $strServiceNameGen -computer $strComputer
+                    $oService = Get-Service $strRemServiceName -computer $strComputer
                     $strRemServiceStatus = $oService.Status
                     if ($strRemServiceStatus -eq "Stopped") {break}
                     if ($i -eq $retryCount) {
@@ -916,7 +916,7 @@ function Stop-Services {
                         Invoke-Command -ComputerName $strComputer {param($ServicePID) Stop-Process $ServicePID -Force} -Args $ServicePID -ErrorAction SilentlyContinue
                     }
                 }
-                $oService = Get-Service $strServiceNameGen -computer $strComputer
+                $oService = Get-Service $strRemServiceName -computer $strComputer
                 $strRemServiceStatus = $oService.Status
                 if ($strRemServiceStatus -ne "Stopped") {throw "    " + $strRemServiceName + "is still" + $oService.Status}
                 else {write-host "   "$strRemServiceName "has been stopped"}
