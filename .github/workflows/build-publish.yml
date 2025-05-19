@@ -1,0 +1,100 @@
+name: Build and Publish DOrcDeployModule
+
+on:
+  push:
+    branches:
+      - 'main'
+      - 'feature/*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ github.event.repository.name }}_${{ github.ref_name }}_${{ github.run_number }}
+    runs-on: windows-latest
+
+    outputs:
+      build_name: ${{ steps.set_build_name.outputs.build_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Versioning manifest
+        id: set_build_name
+        run: |
+          $Env:BuildNumber = "$(Get-Date -Format 'yy.MM.dd').$Env:GITHUB_RUN_NUMBER"
+          Write-Host "BuildNumber=$Env:BuildNumber"
+          
+          $BranchName = "${{ github.ref_name }}" -replace '/', '-'
+          
+          $BuildName = "${{ github.event.repository.name }}_${BranchName}_$Env:BuildNumber"
+          Write-Host "BuildName=$BuildName"
+
+          Add-Content -Path $Env:GITHUB_OUTPUT -Value "build_name=$BuildName" -Encoding UTF8
+
+          pwsh ./UpdateVersion.ps1 -BuildNumber $Env:BuildNumber
+        shell: pwsh
+
+      - name: Copy updated files
+        id: copy_files
+        run: |
+          $DestinationDir = "$Env:GITHUB_WORKSPACE\DOrcDeployModule"
+
+          Write-Host "Build name is $Env:BuildName"
+
+          if (-Not (Test-Path $DestinationDir)) {
+              New-Item -ItemType Directory -Path $DestinationDir
+          }
+
+          Copy-Item -Path "./*.psd1" -Destination "$DestinationDir" -Force
+          Copy-Item -Path "./*.psm1" -Destination "$DestinationDir" -Force
+
+          Write-Host "Copied files:"
+          Get-ChildItem -Path $DestinationDir
+        shell: pwsh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DOrcDeployModule
+          path: ${{ github.workspace }}/DOrcDeployModule/*
+
+      - name: Upload Full Workspace Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set_build_name.outputs.build_name }}
+          path: ${{ github.workspace }}/*
+
+  publish:
+    name: Publish to PSGallery
+    runs-on: windows-latest
+    needs: build
+    environment:
+      name: production
+
+    steps:
+      - name: Download DOrcDeployModule Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: DOrcDeployModule
+          path: ${{ github.workspace }}/DOrcDeployModule
+
+      - name: Publish module to PowerShell Gallery
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          Install-Module -Name PowerShellGet -RequiredVersion 2.2.5 -Force
+          Import-Module PowerShellGet -Force
+
+          $ApiKey = $Env:PSGALLERY_API_KEY
+          if (-not $ApiKey) {
+              throw "PowerShell Gallery API key is missing. Please set the PSGALLERY_API_KEY secret."
+          }
+
+          $Env:PSModulePath = "$Env:GITHUB_WORKSPACE/DOrcDeployModule"
+          Write-Host "PSModulePath: $Env:PSModulePath"
+          Get-ChildItem $Env:PSModulePath
+
+          Publish-Module -NuGetApiKey $ApiKey -Name "DOrcDeployModule"
+        shell: pwsh
