@@ -96,7 +96,7 @@
             # Tags = @()
     
             # A URL to the license for this module.
-            # LicenseUri = ''
+            LicenseUri = 'https://github.com/sefe/DOrcDeployModule/blob/feature/test-pipeline/LICENSE.md'
     
             # A URL to the main website for this project.
             # ProjectUri = ''
