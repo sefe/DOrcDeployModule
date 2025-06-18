@@ -2,6 +2,8 @@ param(
     [ValidateNotNullOrEmpty()]$ProjectDir = $Env:GITHUB_WORKSPACE,
     [ValidateNotNullOrEmpty()][System.String]$BuildNumber = $Env:GITHUB_RUN_NUMBER
 )
+Write-Host "ProjectDir: $ProjectDir"
+Write-Host "BuildNumber: $BuildNumber"
 $manifest=join-path -Path $ProjectDir  -ChildPath ".\DOrcDeployModule.psd1"
 write-host "Using manifest: " $manifest
 $version=[version]$(Import-PowerShellDataFile $manifest).ModuleVersion
