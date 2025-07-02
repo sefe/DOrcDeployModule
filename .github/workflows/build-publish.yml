@@ -45,9 +45,7 @@ jobs:
           $runs = Invoke-RestMethod -Uri $url -Headers @{Authorization = "Bearer $env:GH_TOKEN"}
 
           $count = ($runs.workflow_runs | Where-Object {(Get-Date $_.created_at).ToString('yyyy-MM-dd') -eq $today}).Count
-          Write-Host "Count=$count"
-
-          $buildNumber = $count + 1
+          $buildNumber = $count
 
           Write-Host "DailyBuildNumber=$buildNumber"
           echo "DAILY_BUILD_NUMBER=$buildNumber" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -68,7 +66,7 @@ jobs:
 
           Add-Content -Path $Env:GITHUB_OUTPUT -Value "build_name=$BuildName" -Encoding UTF8
 
-          pwsh ./UpdateVersion.ps1 -BuildNumber $Env:BuildNumber
+          pwsh ./UpdateVersion.ps1 -ProjectDir $Env:GITHUB_WORKSPACE -BuildNumber $Env:BuildNumber
         shell: pwsh
 
       - name: Copy updated files
