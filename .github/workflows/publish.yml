@@ -1,0 +1,84 @@
+name: Publish DOrcDeployModule to PSGallery
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_name:
+        description: 'Build artifact name (full) (e.g. DOrcDeployModule_main_24.06.10.1)'
+        required: true
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - name: Find run_id by build_name
+        id: find_run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const buildName = '${{ github.event.inputs.build_name }}';
+            const workflowName = 'Build DOrcDeployModule';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Get workflow_id by workflow name
+            const workflows = await github.rest.actions.listRepoWorkflows({ owner, repo });
+            const workflow = workflows.data.workflows.find(wf => wf.name === workflowName);
+            if (!workflow) {
+              core.setFailed(`Workflow "${workflowName}" not found`);
+              return;
+            }
+
+            // Get last 20 successful runs for this workflow
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: workflow.id,
+              status: 'success',
+              per_page: 20
+            });
+
+            let found = false;
+            for (const run of runs.data.workflow_runs) {
+              // Get artifacts for this run
+              const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                owner,
+                repo,
+                run_id: run.id
+              });
+              // Find artifact with the given build_name
+              if (artifacts.data.artifacts.some(a => a.name === buildName)) {
+                core.setOutput('run_id', run.id);
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              core.setFailed(`No run found with artifact "${buildName}" in the last 20 successful runs`);
+            }
+
+      - name: Download DOrcDeployModule artifact from found run
+        uses: dawidd6/action-download-artifact@v11
+        with:
+          run_id: ${{ steps.find_run.outputs.run_id }}
+          name: DOrcDeployModule
+          path: ${{ github.workspace }}/DOrcDeployModule
+
+      - name: Publish module to PowerShell Gallery
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          Install-Module -Name PowerShellGet -RequiredVersion 2.2.5 -Force
+          Import-Module PowerShellGet -Force
+
+          $apiKey = $env:PSGALLERY_API_KEY
+          if (-not $apiKey) {
+              throw "PowerShell Gallery API key is missing. Please set the PSGALLERY_API_KEY secret."
+          }
+
+          $env:PSModulePath = "$Env:GITHUB_WORKSPACE/DOrcDeployModule"
+          Write-Host "PSModulePath: $env:PSModulePath"
+          Get-ChildItem $env:PSModulePath
+
+          Publish-Module -NuGetApiKey $apiKey -Name "DOrcDeployModule"
+        shell: pwsh
