@@ -1,0 +1,95 @@
+name: Build DOrcDeployModule
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ github.event.repository.name }}_${{ github.ref_name }}_${{ github.run_number }}
+    runs-on: windows-latest
+
+    outputs:
+      build_name: ${{ steps.set_build_name.outputs.build_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Get daily build number
+        id: get_daily_build_number
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $today = (Get-Date -Format 'yyyy-MM-dd')
+          $workflowName = "${{ github.workflow }}"
+          $repo = "${{ github.repository }}"
+          $branch = "${{ github.ref_name }}"
+
+          # Get workflow ID by name (more robust than file name)
+          $workflows = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/actions/workflows" -Headers @{Authorization = "Bearer $env:GH_TOKEN"}
+          $workflowId = ($workflows.workflows | Where-Object { $_.name -eq $workflowName }).id
+
+          if (-not $workflowId) {
+            throw "Could not determine workflow ID for $workflowName"
+          }
+
+          # Get completed runs for today on this branch
+          $url = "https://api.github.com/repos/$repo/actions/workflows/$workflowId/runs?branch=$branch&per_page=100"
+          Write-Host $url
+          $runs = Invoke-RestMethod -Uri $url -Headers @{Authorization = "Bearer $env:GH_TOKEN"}
+
+          $count = ($runs.workflow_runs | Where-Object {(Get-Date $_.created_at).ToString('yyyy-MM-dd') -eq $today}).Count
+          $buildNumber = $count
+
+          Write-Host "DailyBuildNumber=$buildNumber"
+          echo "DAILY_BUILD_NUMBER=$buildNumber" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "daily_build_number=$buildNumber" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Versioning manifest
+        id: set_build_name
+        env:
+          DAILY_BUILD_NUMBER: ${{ steps.get_daily_build_number.outputs.daily_build_number }}
+        run: |
+          $Env:BuildNumber = "$(Get-Date -Format 'yy.MM.dd').$Env:DAILY_BUILD_NUMBER"
+          Write-Host "BuildNumber=$Env:BuildNumber"
+          
+          $BranchName = "${{ github.ref_name }}" -replace '/', '-'
+          
+          $BuildName = "${{ github.event.repository.name }}_${BranchName}_$Env:BuildNumber"
+          Write-Host "BuildName=$BuildName"
+
+          Add-Content -Path $Env:GITHUB_OUTPUT -Value "build_name=$BuildName" -Encoding UTF8
+
+          pwsh ./UpdateVersion.ps1 -ProjectDir $Env:GITHUB_WORKSPACE -BuildNumber $Env:BuildNumber
+        shell: pwsh
+
+      - name: Copy updated files
+        id: copy_files
+        run: |
+          $DestinationDir = "$Env:GITHUB_WORKSPACE\DOrcDeployModule"
+
+          Write-Host "Build name is $Env:BuildName"
+
+          if (-Not (Test-Path $DestinationDir)) {
+              New-Item -ItemType Directory -Path $DestinationDir
+          }
+
+          Copy-Item -Path "./*.psd1" -Destination "$DestinationDir" -Force
+          Copy-Item -Path "./*.psm1" -Destination "$DestinationDir" -Force
+
+          Write-Host "Copied files:"
+          Get-ChildItem -Path $DestinationDir
+        shell: pwsh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DOrcDeployModule
+          path: ${{ github.workspace }}/DOrcDeployModule/*
+
+      - name: Upload Full Workspace Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set_build_name.outputs.build_name }}
+          path: ${{ github.workspace }}/*
