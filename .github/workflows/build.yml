@@ -1,6 +1,11 @@
 name: Build DOrcDeployModule
 
 on:
+  push:
+    branches:
+      - 'main'
+      - 'feature/*'
+  pull_request:
   workflow_dispatch:
 
 jobs:
