@@ -305,7 +305,7 @@ function InstallMSI([string] $strComputerName, [string] $strMSIFullName, $arrPar
     if ($arrParameters.Count -gt 0) {
         Write-Host "[InstallMSI] Attempting to install:" $strMSIFullName "on:" $strComputerName "with the following parameters:"
         foreach ($strParameter in $arrParameters) {
-            if (($strParameter.ToLower().Contains("password")) -or ($strParameter.ToLower().Contains("pswd")) -or ($strParameter.ToLower().Contains("pass"))) {
+            if (($strParameter.ToLower().Contains("password")) -or ($strParameter.ToLower().Contains("pswd")) -or ($strParameter.ToLower().Contains("pass")) -or ($strParameter.ToLower().Contains("secret"))) {
                 Write-Host "    "$strParameter.Split("=")[0]
             }
             else {
