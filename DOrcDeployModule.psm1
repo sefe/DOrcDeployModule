@@ -4078,24 +4078,56 @@ function DeployDACPACToAzureSQL {
     param (
         [Parameter(Mandatory = $true)]
         [string]$TargetServerName, 
+
         [Parameter(Mandatory = $true)]  
         [string]$TargetDatabaseName, 
+
         [Parameter(Mandatory = $true)]
         [string]$dacpacPath,         
+
         [Parameter(Mandatory = $true)]
         [string]$sqlPackagePath,     
+
         [Parameter(Mandatory = $true)]
-        [string]$AccessToken         
+        [string]$AccessToken,         
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$Variables
     )
 
-
     Write-Host "Deploying DACPAC to Azure SQL Server..."
-    & "$sqlPackagePath" /Action:Publish /SourceFile:$dacpacPath /TargetServerName:$TargetServerName /TargetDatabaseName:$TargetDatabaseName /AccessToken:$AccessToken /Quiet
 
-    if ($?) {
-        Write-Host "DACPAC deployment to $ServerName database $DatabaseName completed successfully."
-    } else {
-        Write-Host "DACPAC deployment failed."
+    # Base args
+    $args = @(
+        "/Action:Publish",
+        "/SourceFile:$dacpacPath",
+        "/TargetServerName:$TargetServerName",
+        "/TargetDatabaseName:$TargetDatabaseName",
+        "/AccessToken:$AccessToken",
+        "/Quiet"
+    )
+
+    # Add /Variables:... if provided
+    if ($Variables) {
+        $varString = ($Variables.GetEnumerator() | ForEach-Object {
+                "$($_.Key)=$($_.Value)"
+            }) -join ";"
+
+        $args += "/v:$varString"
+    }
+
+    # Debug
+    Write-Host "Running: $sqlPackagePath $($args -join ' ')"
+
+    # Execute
+    & "$sqlPackagePath" @args
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "DACPAC deployment to $TargetServerName database $TargetDatabaseName completed successfully."
+    }
+    else {
+        Write-Host "DACPAC deployment failed with exit code $LASTEXITCODE"
         throw "Deployment failed"
     }
 }
+
