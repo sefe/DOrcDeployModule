@@ -1,3 +1,51 @@
+#region Helper Functions
+
+<#
+.SYNOPSIS
+    Safely formats a parameter for logging, hiding sensitive values.
+.PARAMETER Parameter
+    The parameter string in format "Name=Value"
+.OUTPUTS
+    Formatted string safe for logging
+#>
+function Format-ParameterForLogging {
+    param([string]$Parameter)
+    
+    if (-not $Parameter.Contains("=")) { return $Parameter }
+    
+    $parts = $Parameter.Split("=", 2)
+    $paramName = $parts[0]
+    $paramValue = $parts[1]
+    
+    # Check if parameter name is sensitive
+    $sensitiveKeywords = @('password', 'pswd', 'pass', 'secret', 'key', 'token', 'credential', 'auth')
+    $nameLower = $paramName.ToLower()
+    $isSensitiveName = $sensitiveKeywords | Where-Object { $nameLower.Contains($_) }
+    
+    if ($isSensitiveName) {
+        return "$paramName=***HIDDEN***"
+    }
+    
+    # Check if value contains sensitive patterns (e.g., Azure SignalR: AccessKey=..., Password=...)
+    $valueLower = $paramValue.ToLower()
+    $hasSensitiveValue = $sensitiveKeywords | Where-Object { 
+        $valueLower -match "$_\s*=" 
+    }
+    
+    if ($hasSensitiveValue) {
+        # Replace sensitive parts in connection strings while preserving structure
+        $maskedValue = $paramValue
+        foreach ($keyword in $sensitiveKeywords) {
+            $maskedValue = $maskedValue -replace "(?i)($keyword\s*=)[^;]*", "`$1***HIDDEN***"
+        }
+        return "$paramName=$maskedValue"
+    }
+    
+    return $Parameter
+}
+
+#endregion
+
 function Invoke-VsDbCmd {
     Param
     (
@@ -304,13 +352,9 @@ function InstallMSI([string] $strComputerName, [string] $strMSIFullName, $arrPar
     $strUNCMSIName = Join-Path $DestFolder $strMSIName
     if ($arrParameters.Count -gt 0) {
         Write-Host "[InstallMSI] Attempting to install:" $strMSIFullName "on:" $strComputerName "with the following parameters:"
+        
         foreach ($strParameter in $arrParameters) {
-            if (($strParameter.ToLower().Contains("password")) -or ($strParameter.ToLower().Contains("pswd")) -or ($strParameter.ToLower().Contains("pass")) -or ($strParameter.ToLower().Contains("secret"))) {
-                Write-Host "    "$strParameter.Split("=")[0]
-            }
-            else {
-                Write-Host "    " $strParameter
-            }
+            Write-Host "    " (Format-ParameterForLogging -Parameter $strParameter)
             $strAllParameters = $strAllParameters + " " + $strParameter.replace('%','%%')
         }
     }
@@ -969,8 +1013,13 @@ function RunMTMTests($arrParameters) {
     $bolReturn = $false
     if ($arrParameters.Count -gt 0) {
         foreach ($strParameter in $arrParameters) {
-            Write-Host "Setting" $strParameter.Split("=")[0] "to:" $strParameter.Split("=")[1]
-            Set-Variable -Name  $strParameter.Split("=")[0] -Value $strParameter.Split("=")[1]
+            $parameterName = $strParameter.Split("=")[0]
+            $parameterValue = $strParameter.Split("=")[1]
+            
+            $safeDisplay = Format-ParameterForLogging -Parameter $strParameter
+            Write-Host "Setting $safeDisplay"
+            
+            Set-Variable -Name $parameterName -Value $parameterValue
         }
         ## Sync
         $UpdateParams = " testcase /import /collection:" + $TFSInstance + " /teamproject:" + $TFSTeamProject + " /storage:" + $TestDll + " /syncsuite:" + $TestSuite
