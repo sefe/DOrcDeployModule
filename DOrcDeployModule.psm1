@@ -1644,7 +1644,7 @@ function CheckFeature([string] $strComputerName, [string] $strFeature) {
 
 function InstFeature([string] $strComputerName, [string] $strFeature, [bool] $bolAllSubFeatures, [string] $strSourceSxSFolder, [string] $strDeploymentServiceAccount, [string] $strDeploymentServiceAccountPassword) {
     # Required because deployment nodes don't support -ComputerName on current powershell version
-    $bolReturn = $true
+    $bolReturn = $false
     Write-Host "Checking:" $strComputerName":"$strFeature
     $session = New-PSSession -ComputerName $strComputerName
     if (CheckFeature $strComputerName $strFeature) {
