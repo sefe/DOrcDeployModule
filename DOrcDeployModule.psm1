@@ -10,40 +10,48 @@
 #>
 function Format-ParameterForLogging {
     param([string]$Parameter)
-    
+
     if (-not $Parameter.Contains("=")) { return $Parameter }
-    
+
     $parts = $Parameter.Split("=", 2)
     $paramName = $parts[0]
     $paramValue = $parts[1]
-    
-    # Check if parameter name is sensitive
-    $sensitiveKeywords = @('password', 'pswd', 'pass', 'secret', 'key', 'token', 'credential', 'auth')
+
+    $sensitiveKeywords = @('password', 'pswd', 'pass', 'secret', 'apikey', 'token', 'credential')
     $nameLower = $paramName.ToLower()
-    $isSensitiveName = $sensitiveKeywords | Where-Object { $nameLower.Contains($_) }
     
-    if ($isSensitiveName) {
+    if ($sensitiveKeywords | Where-Object { $nameLower.Contains($_) }) {
         return "$paramName=***HIDDEN***"
     }
-    
-    # Check if value contains sensitive patterns (e.g., Azure SignalR: AccessKey=..., Password=...)
-    $valueLower = $paramValue.ToLower()
-    $hasSensitiveValue = $sensitiveKeywords | Where-Object { 
-        $valueLower -match "$_\s*=" 
-    }
-    
-    if ($hasSensitiveValue) {
-        # Replace sensitive parts in connection strings while preserving structure
-        $maskedValue = $paramValue
-        foreach ($keyword in $sensitiveKeywords) {
-            $maskedValue = $maskedValue -replace "(?i)($keyword\s*=)[^;]*", "`$1***HIDDEN***"
+
+    # Check if value contains connection string with sensitive data
+    if ($paramValue -match "[\;=]") {
+        $maskedPairs = $paramValue -split ';' | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+                $key, $value = $matches[1].Trim(), $matches[2].Trim()
+                $keyLower = $key.ToLower()
+                
+                # Mask if key contains sensitive keyword
+                if ($sensitiveKeywords | Where-Object { $keyLower.Contains($_) }) {
+                    "$key=***HIDDEN***"
+                } else {
+                    "$key=$value"
+                }
+            } else {
+                $_  # Return non key-value parts as-is
+            }
         }
-        return "$paramName=$maskedValue"
+        return "$paramName=$($maskedPairs -join ';')"
     }
-    
+
+    # Check if regular parameter value contains sensitive patterns
+    $valueLower = $paramValue.ToLower()
+    if ($sensitiveKeywords | Where-Object { $valueLower -match "$_\s*=" }) {
+        return "$paramName=***HIDDEN***"
+    }
+
     return $Parameter
 }
-
 #endregion
 
 function Invoke-VsDbCmd {
