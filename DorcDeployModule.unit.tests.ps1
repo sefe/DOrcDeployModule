@@ -1,5 +1,5 @@
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-Import-Module "$here\DOrcDeployModule.psm1" -ErrorAction Stop
+Import-Module "$here\DOrcDeployModule.psm1" -Force -ErrorAction Stop
 
 Describe "Enhanced Parameter Security Tests" {
     Context "Basic functionality" {
@@ -12,7 +12,7 @@ Describe "Enhanced Parameter Security Tests" {
         }
         
         It "Is case insensitive" {
-            Format-ParameterForLogging "my-PassWord=test" | Should -Be "my-PassWord=***HIDDEN***"
+            Format-ParameterForLogging "my-Secret=test" | Should -Be "my-Secret=***HIDDEN***"
         }
     }
     
