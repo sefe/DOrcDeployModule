@@ -2708,7 +2708,7 @@ function Get-EndurDbVersion
     $dataTable = New-Object System.Data.DataTable
     $sqlConnection = New-Object System.Data.SQLClient.SQLConnection
     $sqlQuery = "SELECT TOP 1 [major],[minor],[revision],[build] FROM [" + $endurDb + "].[dbo].[version_number]"
-    $sqlConnection.ConnectionString = "Server=$endurDbServer;Database=$endurDb;Integrated Security=true"
+    $sqlConnection.ConnectionString = "Server=$endurDbServer;Database=$endurDb;Integrated Security=True"
     $sqlConnection.Open()
     $command = New-Object System.Data.SQLClient.SQLCommand
     $command.Connection = $sqlConnection
