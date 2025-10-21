@@ -68,7 +68,7 @@ function CheckDiskSpace([string[]] $servers, [int] $minMB = 100) {
     Write-Host "  Checking disk space..."
     foreach ($server in $servers) {
         $serv = "[" + $server.Trim() + "]"
-        $ntfsVolumes = Get-WmiObject -Class win32_volume -cn $server | Where-Object {($_.FileSystem -eq "NTFS") -and ($_.driveletter)}
+        $ntfsVolumes = Get-CimInstance -Class win32_volume -cn $server | Where-Object {($_.FileSystem -eq "NTFS") -and ($_.driveletter)}
         foreach ($ntfsVolume in $ntfsVolumes) {
             #Considered checking for the existance of the pagefile file but it could be on C: which we care about (either orphaned or current)
             if ($ntfsVolume.DriveLetter -eq "P:") { write-host "     " $ntfsVolume.DriveLetter "Skipped..."}
@@ -135,7 +135,7 @@ function RemoveMSI([string] $strComputerName, [string] $strMSIFullName, $Product
         Write-Host "Attempting to remove using msi ProductCode"
         $bolReturn = UninstallProduct -strComputerName $strComputerName -strMSIFullName $strMSIFullName
 
-        $Products = Get-WmiObject Win32_Product -ComputerName $strComputerName
+        $Products = Get-CimInstance Win32_Product -ComputerName $strComputerName
         foreach ($Product in $Products) {
             foreach ($strProductName in $ProductsToRemove) {
                 if ($Product.Name -ne $null) {
@@ -943,7 +943,7 @@ function StartServices($arrServiceList, [string] $strComputer) {
         if ($strRemServiceName -eq $strService) {
             if ($strRemServiceStatus -eq "Stopped") {
                 Write-Host "    Starting" $strService "on" $strComputer
-                Get-WmiObject -Class win32_service -Filter "Name = '$($strService)'"-ComputerName $strComputer -EnableAllPrivileges | Invoke-WmiMethod -Name StartService -ErrorAction Stop
+                Get-CimInstance -Class win32_service -Filter "Name = '$($strService)'"-ComputerName $strComputer | Invoke-CIMMethod -Name StartService -ErrorAction Stop
                 start-sleep -Seconds 5
                 For ($i=0; $i -le 10; $i++) {
                     $oService = Get-Service $strServiceNameGen -computer $strComputer
@@ -1107,7 +1107,7 @@ function Restart-Servers {
     foreach	($TargetServer in $TargetServers) {
         $LastBootUpTime = $null
         try {
-            $wmi = Get-WmiObject -Class Win32_OperatingSystem -Computer $TargetServer -ErrorAction Stop
+            $wmi = Get-CimInstance -Class Win32_OperatingSystem -Computer $TargetServer -ErrorAction Stop
             $LastBootUpTime = $wmi.ConvertToDateTime($wmi.LastBootUpTime)
         }
         catch {
@@ -1122,7 +1122,7 @@ function Restart-Servers {
         try {
             #reboot computer using WMI reboot method is more reliable than Restart-Computer
             Write-host "Rebooting $TargetServer using WMI"
-            Get-WmiObject Win32_OperatingSystem -ComputerName $TargetServer -EnableAllPrivileges -ErrorAction Stop | Invoke-WmiMethod -Name reboot -ErrorAction Stop | Out-Null
+            Get-CimInstance Win32_OperatingSystem -ComputerName $TargetServer -EnableAllPrivileges -ErrorAction Stop | Invoke-CIMMethod -Name reboot -ErrorAction Stop | Out-Null
         }
         catch {
             #last resort - use shutdown.exe
@@ -1150,7 +1150,7 @@ function Restart-Servers {
             #Check uptime
             $10min = New-TimeSpan -Minutes 10
             try {
-                $wmi = Get-WmiObject -Class Win32_OperatingSystem -Computer $TargetServer -ErrorAction Stop
+                $wmi = Get-CimInstance -Class Win32_OperatingSystem -Computer $TargetServer -ErrorAction Stop
                 $LastBootUpTime = $wmi.ConvertToDateTime($wmi.LastBootUpTime)
             }
             catch {
@@ -1615,7 +1615,7 @@ function InstFeature([string] $strComputerName, [string] $strFeature, [bool] $bo
         Invoke-Command -session $session {$ProgressPreference = "SilentlyContinue"}
         Invoke-Command -session $session {net use * $($args[0]) $($args[1]) /user:$($args[2]) 2>&1>null} -ArgumentList $strSourceSxSFolder, $DeploymentServiceAccountPassword, $DeploymentServiceAccount
         if ($bolAllSubFeatures) {	
-            if (((Get-WmiObject Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
+            if (((Get-CimInstance Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
                 Invoke-Command -session $session {Install-WindowsFeature -Name $($args[0]) -IncludeAllSubFeature -Source $($args[1]) | Out-Null} -ArgumentList $strFeature, $strSourceSxSFolder
             }
             else {
@@ -1623,7 +1623,7 @@ function InstFeature([string] $strComputerName, [string] $strFeature, [bool] $bo
             }
         }
         else {
-            if (((Get-WmiObject Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
+            if (((Get-CimInstance Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
                 Invoke-Command -session $session {Install-WindowsFeature -Name $($args[0]) -Source $($args[1]) | Out-Null} -ArgumentList $strFeature, $strSourceSxSFolder
             }
             else {                
@@ -1645,7 +1645,7 @@ function UnInstFeature([string] $strComputerName, [string] $strFeature, [bool] $
     if (CheckFeature $strComputerName $strFeature) {
         Write-Host "    Uninstalling:" $strFeature
         Invoke-Command -session $session {$ProgressPreference = "SilentlyContinue"}
-        if ( ((Get-WmiObject Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
+        if ( ((Get-CimInstance Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
             Invoke-Command -session $session {Uninstall-WindowsFeature -Name $($args[0]) | Out-Null} -ArgumentList $strFeature
         }
         else {
@@ -2786,7 +2786,7 @@ function Check-ProductInstalled
 )
 {
     $installed = $false
-    $products = Get-WmiObject Win32_Product -ComputerName $serverName
+    $products = Get-CimInstance Win32_Product -ComputerName $serverName
     foreach ($product in $products) { if ($product.Name.ToLower() -eq $productName.ToLower()) { $installed = $true } }
     $products = $null
     return $installed
@@ -2808,7 +2808,7 @@ function Install-WindowsFeaturesDorc
         foreach ($Row in $ServerInfo) {
             $serverName = $Row.Server_Name.Trim()
             $serverType = $Row.Application_Server_Name.Trim()
-            $remOS = Get-WmiObject Win32_OperatingSystem -ComputerName $serverName
+            $remOS = Get-CimInstance Win32_OperatingSystem -ComputerName $serverName
             if ($remOS.Name -match "2008") {
                 write-host "[Install-WindowsFeaturesDorc] Target server O/S is 2008, skipping:" $serverName
             }
@@ -3013,7 +3013,7 @@ function Get-ServerIDs
             $serverName = $Row.Server_Name.Trim()
             $serverType = $Row.Application_Server_Name.Trim()
             try {
-                [guid]$id = icm $serverName {(get-wmiobject Win32_ComputerSystemProduct).UUID} -ErrorAction Stop
+                [guid]$id = icm $serverName {(Get-CimInstance Win32_ComputerSystemProduct).UUID} -ErrorAction Stop
                 $result += $serverName.ToUpper() + ":" + $id + ";"
             }
             catch {
@@ -3041,7 +3041,7 @@ function Check-ServerIDsDifferent
             $serverName = $Row.Server_Name.Trim()
             $serverType = $Row.Application_Server_Name.Trim()
             try {
-                [guid]$id = icm $serverName {(get-wmiobject Win32_ComputerSystemProduct).UUID} -ErrorAction Stop
+                [guid]$id = icm $serverName {(Get-CimInstance Win32_ComputerSystemProduct).UUID} -ErrorAction Stop
             }
             catch {
                 Write-Host "[Get-ServerIDs] Server $ServerName not reachable. This is expected for a new build."
