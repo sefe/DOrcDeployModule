@@ -48,14 +48,19 @@ function Invoke-VsDbCmd {
 }
 
 function SendEmailToDOrcSupport([string] $StrSubject) {
-    $Msg = New-Object Net.Mail.MailMessage
-    $Smtp = New-Object Net.Mail.SmtpClient($DOrcSupportEmailSMTPServer)
-    $Msg.From = $DOrcSupportEmailFrom
-    $Msg.To.Add($DOrcSupportEmailTo)
-    $Msg.Subject = $StrSubject
-    $Smtp.Send($Msg)
-    $Smtp = $null
-    $Msg = $null
+    try {
+        $Msg = New-Object Net.Mail.MailMessage
+        $Smtp = New-Object Net.Mail.SmtpClient($DOrcSupportEmailSMTPServer)
+        $Msg.From = $DOrcSupportEmailFrom
+        $Msg.To.Add($DOrcSupportEmailTo)
+        $Msg.Subject = $StrSubject
+        $Smtp.Send($Msg)
+        $Smtp = $null
+        $Msg = $null
+    }
+    catch {
+        Write-Warning "Failed to send email notification: $($_.Exception.Message)"
+    }
 }
 
 function GetDateReverse() {
@@ -68,7 +73,18 @@ function CheckDiskSpace([string[]] $servers, [int] $minMB = 100) {
     Write-Host "  Checking disk space..."
     foreach ($server in $servers) {
         $serv = "[" + $server.Trim() + "]"
-        $ntfsVolumes = Get-WmiObject -Class win32_volume -cn $server | Where-Object {($_.FileSystem -eq "NTFS") -and ($_.driveletter)}
+        try {
+            $ntfsVolumes = Get-WmiObject -Class win32_volume -cn $server | Where-Object {($_.FileSystem -eq "NTFS") -and ($_.driveletter)}
+        }
+        catch {
+            Write-Warning "Failed to query disk space on $serv : $($_.Exception.Message)"
+            $bolSpaceCheckOK = $false
+            continue
+        }
+        if (-not $ntfsVolumes) {
+            Write-Warning "No NTFS volumes found on $serv"
+            continue
+        }
         foreach ($ntfsVolume in $ntfsVolumes) {
             #Considered checking for the existance of the pagefile file but it could be on C: which we care about (either orphaned or current)
             if ($ntfsVolume.DriveLetter -eq "P:") { write-host "     " $ntfsVolume.DriveLetter "Skipped..."}
@@ -2497,8 +2513,8 @@ function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [st
             Invoke-Command -session $session { $Process = New-Object System.Diagnostics.Process }
             Invoke-Command -session $session { $Process.StartInfo = $ProcessInfo }
             Invoke-Command -session $session { $Process.Start()}
-            Invoke-Command -session $session { try { $out = $Process.StandardOutput.ReadToEndAsync() } catch { Write-Verbose "Could not read StandardOutput: $_" } }
-            Invoke-Command -session $session { try { $outErr = $Process.StandardError.ReadToEndAsync() } catch { Write-Verbose "Could not read StandardError: $_" } }
+            Invoke-Command -session $session { try { $out = $Process.StandardOutput.ReadToEndAsync() } catch { Write-Verbose "Could not read StandardOutput" } }
+            Invoke-Command -session $session { try { $outErr = $Process.StandardError.ReadToEndAsync() } catch { Write-Verbose "Could not read StandardError" } }
             Invoke-Command -session $session { $Process.WaitForExit() }
             if (![String]::IsNullOrEmpty($strExecutableChild)) {
                 do {
@@ -3287,6 +3303,10 @@ function CheckBackup ([string] $SourceInstance, [string] $SourceDB, [string] $Re
 		}
 		else {return $false}
     }
+    else {
+        Write-Warning "Unexpected RestoreMode: $RestoreMode after validation"
+        return $false
+    }
 }
 
 Function Get-MSHotfix  {  
@@ -3774,7 +3794,7 @@ Function Check-IsCitrixServer {
         $compOS = $os.Caption
         $os = $null
     } catch { 
-        Write-Verbose "Could not retrieve OS information for $compName: $_"
+        Write-Verbose "Could not retrieve OS information for $compName : $($_.Exception.Message)"
     }
     if ($compOS -eq "unknown") {
         write-host "[Check-IsCitrixServer] Unable to identify O/S on: $compName"
