@@ -2,6 +2,45 @@
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module "$here\DOrcDeployModule.psm1" -ErrorAction Stop
 
+Describe "DeleteRabbit Mode Parameter Tests" {
+    Context "Valid mode parameter" {
+        BeforeAll {
+            Mock -CommandName Invoke-RestMethod -MockWith { return @() }
+            Mock -CommandName ConvertTo-SecureString -MockWith { return "SecurePassword" }
+            Mock -CommandName Add-Type -MockWith { }
+        }
+        
+        It "Should handle 'exchange' mode correctly" {
+            { DeleteRabbit -mode 'exchange' -deleteStrings @('test') -RabbitUserName 'user' -RabbitPassword 'pass' -RabbitAPIPort '15672' -Server 'localhost' } | Should -Not -Throw
+        }
+        
+        It "Should handle 'queue' mode correctly" {
+            { DeleteRabbit -mode 'queue' -deleteStrings @('test') -RabbitUserName 'user' -RabbitPassword 'pass' -RabbitAPIPort '15672' -Server 'localhost' } | Should -Not -Throw
+        }
+    }
+    
+    Context "Invalid mode parameter" {
+        BeforeAll {
+            Mock -CommandName Invoke-RestMethod -MockWith { return @() }
+            Mock -CommandName ConvertTo-SecureString -MockWith { return "SecurePassword" }
+            Mock -CommandName Add-Type -MockWith { }
+        }
+        
+        It "Should not throw for invalid mode (warning is displayed instead)" {
+            # The function now handles invalid modes gracefully with a warning instead of throwing
+            { DeleteRabbit -mode 'invalid' -deleteStrings @('test') -RabbitUserName 'user' -RabbitPassword 'pass' -RabbitAPIPort '15672' -Server 'localhost' -WarningAction SilentlyContinue } | Should -Not -Throw
+        }
+    }
+}
+
+Describe "CheckBackup RestoreMode Parameter Tests" {
+    Context "Invalid RestoreMode value" {
+        It "Should throw for invalid RestoreMode" {
+            { CheckBackup -SourceInstance 'localhost' -SourceDB 'TestDB' -RestoreMode 'invalid' } | Should -Throw "wrong RestoreMode*"
+        }
+    }
+}
+
 Describe "Get-DorcCredSSPStatus tests" {
     Context "Computer reachable"{
         Context "Returns an object with all the expected properties"{
