@@ -90,14 +90,19 @@ function Invoke-VsDbCmd {
 }
 
 function SendEmailToDOrcSupport([string] $StrSubject) {
-    $Msg = New-Object Net.Mail.MailMessage
-    $Smtp = New-Object Net.Mail.SmtpClient($DOrcSupportEmailSMTPServer)
-    $Msg.From = $DOrcSupportEmailFrom
-    $Msg.To.Add($DOrcSupportEmailTo)
-    $Msg.Subject = $StrSubject
-    $Smtp.Send($Msg)
-    $Smtp = $null
-    $Msg = $null
+    try {
+        $Msg = New-Object Net.Mail.MailMessage
+        $Smtp = New-Object Net.Mail.SmtpClient($DOrcSupportEmailSMTPServer)
+        $Msg.From = $DOrcSupportEmailFrom
+        $Msg.To.Add($DOrcSupportEmailTo)
+        $Msg.Subject = $StrSubject
+        $Smtp.Send($Msg)
+        $Smtp = $null
+        $Msg = $null
+    }
+    catch {
+        Write-Warning "Failed to send email notification: $($_.Exception.Message)"
+    }
 }
 
 function GetDateReverse() {
@@ -110,7 +115,18 @@ function CheckDiskSpace([string[]] $servers, [int] $minMB = 100) {
     Write-Host "  Checking disk space..."
     foreach ($server in $servers) {
         $serv = "[" + $server.Trim() + "]"
-        $ntfsVolumes = Get-WmiObject -Class win32_volume -cn $server | Where-Object {($_.FileSystem -eq "NTFS") -and ($_.driveletter)}
+        try {
+            $ntfsVolumes = Get-WmiObject -Class win32_volume -cn $server | Where-Object {($_.FileSystem -eq "NTFS") -and ($_.driveletter)}
+        }
+        catch {
+            Write-Warning "Failed to query disk space on $serv : $($_.Exception.Message)"
+            $bolSpaceCheckOK = $false
+            continue
+        }
+        if (-not $ntfsVolumes) {
+            Write-Warning "No NTFS volumes found on $serv"
+            continue
+        }
         foreach ($ntfsVolume in $ntfsVolumes) {
             #Considered checking for the existance of the pagefile file but it could be on C: which we care about (either orphaned or current)
             if ($ntfsVolume.DriveLetter -eq "P:") { write-host "     " $ntfsVolume.DriveLetter "Skipped..."}
@@ -502,7 +518,7 @@ function GetDbInfoByTypeForEnv([string] $strEnvironment, [string] $strType) {
     $EnvId=(Invoke-RestMethod -Uri $uri -method Get -Credential $credentials -ContentType 'application/json').EnvironmentId
     $uri=$RefDataApiUrl + 'RefDataEnvironmentsDetails/' + $EnvId
     $table=Invoke-RestMethod -Uri $uri -method Get -Credential $credentials -ContentType 'application/json'
-    $table=$table.DbServers | where {$_.Type -eq $strType} | Select Name, ServerName
+    $table=$table.DbServers | Where-Object {$_.Type -eq $strType} | Select-Object Name, ServerName
     $strResult="Invalid"
     if ($table.Name.count -eq 0) {
         Write-Host "No entries returned for $strEnvironment $strType"
@@ -712,7 +728,7 @@ function DeleteRabbit([string]$mode, [string[]]$deleteStrings, [string]$RabbitUs
             $exchanges = Invoke-RestMethod $url -Credential $Credentials -DisableKeepAlive -ErrorAction Continue -Method Get
             $deleteExchanges = @()
 
-            foreach ($exchange in $exchanges | where {-not ($_.name.Contains('amq.'))}) {	
+            foreach ($exchange in $exchanges | Where-Object {-not ($_.name.Contains('amq.'))}) {	
                 if ($deleteString.Length -gt 0) {
                     if ($exchange.name.Contains($deleteString)) {
                         $deleteExchanges += $exchange
@@ -733,7 +749,7 @@ function DeleteRabbit([string]$mode, [string[]]$deleteStrings, [string]$RabbitUs
                 Write-Host "Deleted exchange: " $deleteExchange.name
             }
         }
-        elseif ($mode = 'queue') {
+        elseif ($mode -eq 'queue') {
             $url = "http://$([System.Web.HttpUtility]::UrlEncode($Server)):$([System.Web.HttpUtility]::UrlEncode($RabbitAPIPort))/api/queues/%2f/"
 
             $queues = Invoke-RestMethod $url -Credential $Credentials -DisableKeepAlive -ErrorAction Continue -Method Get
@@ -771,6 +787,9 @@ function DeleteRabbit([string]$mode, [string[]]$deleteStrings, [string]$RabbitUs
                     Write-Host "Deleted queue: " $deleteQueue.name		
                 }
             }
+        }
+        else {
+            Write-Warning "Invalid mode specified: $mode. Valid values are 'exchange' or 'queue'."
         }
     }
 }
@@ -932,7 +951,7 @@ function Stop-Services {
         $strRemServiceName = $null
         $strRemServiceStatus = $null
         $strServiceNameGen = $strService + "*"
-        $oService = Get-Service $strServiceNameGen -computer $strComputer | select -First 1 #ensure only 1 service processed at a time
+        $oService = Get-Service $strServiceNameGen -computer $strComputer | Select-Object -First 1 #ensure only 1 service processed at a time
         $strRemServiceName = $oService.Name
         $strRemServiceStatus = $oService.Status
         $oService = $null
@@ -949,7 +968,7 @@ function Stop-Services {
                     if ($strRemServiceStatus -eq "Stopped") {break}
                     if ($i -eq $retryCount) {
                         $ServicePID = $null
-                        $ServicePID = (get-wmiobject win32_service -computername $strComputer | where { $_.name -eq $strService}).processID
+                        $ServicePID = (get-wmiobject win32_service -computername $strComputer | Where-Object { $_.name -eq $strService}).processID
                         write-host "      Killing PID:" $ServicePID
                         Invoke-Command -ComputerName $strComputer {param($ServicePID) Stop-Process $ServicePID -Force} -Args $ServicePID -ErrorAction SilentlyContinue
                     }
@@ -1138,7 +1157,7 @@ function IsMSIx64([string] $strWiXToolsDir, [string] $strMSIFullName) {
 
 function GetRemPSCompName([string] $strServerName) {
     $Result = ""
-    $Result = icm -ComputerName $strServerName {Get-Content env:computername} -erroraction SilentlyContinue
+    $Result = Invoke-Command -ComputerName $strServerName {Get-Content env:computername} -erroraction SilentlyContinue
     return $Result
 }
 
@@ -2537,8 +2556,8 @@ function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [st
             Invoke-Command -session $session { $Process = New-Object System.Diagnostics.Process }
             Invoke-Command -session $session { $Process.StartInfo = $ProcessInfo }
             Invoke-Command -session $session { $Process.Start()}
-            Invoke-Command -session $session { try { $out = $Process.StandardOutput.ReadToEndAsync() } catch {} }
-            Invoke-Command -session $session { try { $outErr = $Process.StandardError.ReadToEndAsync() } catch {} }
+            Invoke-Command -session $session { try { $out = $Process.StandardOutput.ReadToEndAsync() } catch { Write-Verbose "Could not read StandardOutput" } }
+            Invoke-Command -session $session { try { $outErr = $Process.StandardError.ReadToEndAsync() } catch { Write-Verbose "Could not read StandardError" } }
             Invoke-Command -session $session { $Process.WaitForExit() }
             if (![String]::IsNullOrEmpty($strExecutableChild)) {
                 do {
@@ -3056,7 +3075,7 @@ function Get-ServerIDs
             $serverName = $Row.Server_Name.Trim()
             $serverType = $Row.Application_Server_Name.Trim()
             try {
-                [guid]$id = icm $serverName {(get-wmiobject Win32_ComputerSystemProduct).UUID} -ErrorAction Stop
+                [guid]$id = Invoke-Command $serverName {(get-wmiobject Win32_ComputerSystemProduct).UUID} -ErrorAction Stop
                 $result += $serverName.ToUpper() + ":" + $id + ";"
             }
             catch {
@@ -3084,7 +3103,7 @@ function Check-ServerIDsDifferent
             $serverName = $Row.Server_Name.Trim()
             $serverType = $Row.Application_Server_Name.Trim()
             try {
-                [guid]$id = icm $serverName {(get-wmiobject Win32_ComputerSystemProduct).UUID} -ErrorAction Stop
+                [guid]$id = Invoke-Command $serverName {(get-wmiobject Win32_ComputerSystemProduct).UUID} -ErrorAction Stop
             }
             catch {
                 Write-Host "[Get-ServerIDs] Server $ServerName not reachable. This is expected for a new build."
@@ -3326,6 +3345,10 @@ function CheckBackup ([string] $SourceInstance, [string] $SourceDB, [string] $Re
 				else {return $false}
 		}
 		else {return $false}
+    }
+    else {
+        Write-Warning "Unexpected RestoreMode: $RestoreMode after validation"
+        return $false
     }
 }
 
@@ -3813,12 +3836,14 @@ Function Check-IsCitrixServer {
         $os = Get-CimInstance -ComputerName $compName -ClassName Win32_OperatingSystem -Property *
         $compOS = $os.Caption
         $os = $null
-    } catch { }
+    } catch { 
+        Write-Verbose "Could not retrieve OS information for $compName : $($_.Exception.Message)"
+    }
     if ($compOS -eq "unknown") {
         write-host "[Check-IsCitrixServer] Unable to identify O/S on: $compName"
     } elseif ($compOS.ToLower() -match "server"){
         write-host "[Check-IsCitrixServer] $compName is $compOS"
-        $rkCitrixValueCount = icm -ComputerName $compName { $rkCitrix = get-item HKLM:\SOFTWARE\Citrix -ErrorAction SilentlyContinue ; return $rkCitrix.ValueCount }
+        $rkCitrixValueCount = Invoke-Command -ComputerName $compName { $rkCitrix = get-item HKLM:\SOFTWARE\Citrix -ErrorAction SilentlyContinue ; return $rkCitrix.ValueCount }
         if ($rkCitrixValueCount -gt 0) {
             write-host "[Check-IsCitrixServer] $compName is a Citrix Server..."
             $result = $true
