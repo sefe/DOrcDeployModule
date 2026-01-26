@@ -346,9 +346,13 @@ function InstallMSI([string] $strComputerName, [string] $strMSIFullName, $arrPar
     $strUNCMSIName = Join-Path $DestFolder $strMSIName
     if ($arrParameters.Count -gt 0) {
         Write-Host "[InstallMSI] Attempting to install:" $strMSIFullName "on:" $strComputerName "with the following parameters:"
-        
         foreach ($strParameter in $arrParameters) {
-            Write-Host "    " (Format-ParameterForLogging -Parameter $strParameter)
+            if (($strParameter.ToLower().Contains("password")) -or ($strParameter.ToLower().Contains("pswd")) -or ($strParameter.ToLower().Contains("pass"))) {
+                Write-Host "    "$strParameter.Split("=")[0]
+            }
+            else {
+                Write-Host "    " $strParameter
+            }
             $strAllParameters = $strAllParameters + " " + $strParameter.replace('%','%%')
         }
     }
@@ -496,12 +500,16 @@ function GACAdder([string] $strAction, [string] $strServer, [string] $strLibrary
 }
 
 function GetDbInfoByTypeForEnv([string] $strEnvironment, [string] $strType) {
+    $DOrcToken = Get-DorcToken 
+    $DorcAPIHeaders = @{
+        "Authorization" = "Bearer $DOrcToken" 
+    }
     $securePassword = ConvertTo-SecureString $DorcApiAccessPassword -AsPlainText -Force
     $credentials = New-Object System.Management.Automation.PSCredential ($DorcApiAccessAccount, $securePassword)
     $uri=$RefDataApiUrl + 'RefDataEnvironments?env=' + $strEnvironment
-    $EnvId=(Invoke-RestMethod -Uri $uri -method Get -Credential $credentials -ContentType 'application/json').EnvironmentId
+    $EnvId=(Invoke-RestMethod -Uri $uri -method Get -Headers $DorcAPIHeaders -ContentType 'application/json').EnvironmentId
     $uri=$RefDataApiUrl + 'RefDataEnvironmentsDetails/' + $EnvId
-    $table=Invoke-RestMethod -Uri $uri -method Get -Credential $credentials -ContentType 'application/json'
+    $table=Invoke-RestMethod -Uri $uri -method Get -Headers $DorcAPIHeaders -ContentType 'application/json'
     $table=$table.DbServers | where {$_.Type -eq $strType} | Select Name, ServerName
     $strResult="Invalid"
     if ($table.Name.count -eq 0) {
@@ -944,7 +952,7 @@ function Stop-Services {
                     write-host "      Attempt to stop number:" ($i + 1)
                     Invoke-Command -ComputerName $strComputer { param($strService) Stop-Service $strService -Force} -Args $strService
                     Start-Sleep $retryTime
-                    $oService = Get-Service $strRemServiceName -computer $strComputer
+                    $oService = Get-Service $strServiceNameGen -computer $strComputer
                     $strRemServiceStatus = $oService.Status
                     if ($strRemServiceStatus -eq "Stopped") {break}
                     if ($i -eq $retryCount) {
@@ -954,7 +962,7 @@ function Stop-Services {
                         Invoke-Command -ComputerName $strComputer {param($ServicePID) Stop-Process $ServicePID -Force} -Args $ServicePID -ErrorAction SilentlyContinue
                     }
                 }
-                $oService = Get-Service $strRemServiceName -computer $strComputer
+                $oService = Get-Service $strServiceNameGen -computer $strComputer
                 $strRemServiceStatus = $oService.Status
                 if ($strRemServiceStatus -ne "Stopped") {throw "    " + $strRemServiceName + "is still" + $oService.Status}
                 else {write-host "   "$strRemServiceName "has been stopped"}
@@ -1007,13 +1015,8 @@ function RunMTMTests($arrParameters) {
     $bolReturn = $false
     if ($arrParameters.Count -gt 0) {
         foreach ($strParameter in $arrParameters) {
-            $parameterName = $strParameter.Split("=")[0]
-            $parameterValue = $strParameter.Split("=")[1]
-            
-            $safeDisplay = Format-ParameterForLogging -Parameter $strParameter
-            Write-Host "Setting $safeDisplay"
-            
-            Set-Variable -Name $parameterName -Value $parameterValue
+            Write-Host "Setting" $strParameter.Split("=")[0] "to:" $strParameter.Split("=")[1]
+            Set-Variable -Name  $strParameter.Split("=")[0] -Value $strParameter.Split("=")[1]
         }
         ## Sync
         $UpdateParams = " testcase /import /collection:" + $TFSInstance + " /teamproject:" + $TFSTeamProject + " /storage:" + $TestDll + " /syncsuite:" + $TestSuite
@@ -1217,13 +1220,18 @@ function Restart-Servers {
 }
 
 function GetServersOfType([string] $strEnvironment, [string] $strType = "") {	
+    $DOrcToken = Get-DorcToken 
+    $DorcAPIHeaders = @{
+        "Authorization" = "Bearer $DOrcToken" 
+    }
+    
     $securePassword = ConvertTo-SecureString $DorcApiAccessPassword -AsPlainText -Force
     $credentials = New-Object System.Management.Automation.PSCredential ($DorcApiAccessAccount, $securePassword)
     $uri=$RefDataApiUrl + 'RefDataEnvironments?env=' + $strEnvironment	
-    $EnvInfo = Invoke-RestMethod -Uri $uri -method Get -Credential $credentials -ContentType 'application/json'
+    $EnvInfo = Invoke-RestMethod -Uri $uri -method Get -Headers $DorcAPIHeaders -ContentType 'application/json'
     $EnvId = $EnvInfo.EnvironmentId
     $uri = $RefDataApiUrl + 'RefDataEnvironmentsDetails/' + $EnvId	
-    $EnvDetailsInfo = Invoke-RestMethod -Uri $uri -method Get -Credential $credentials -ContentType 'application/json'
+    $EnvDetailsInfo = Invoke-RestMethod -Uri $uri -method Get -Headers $DorcAPIHeaders -ContentType 'application/json'
     $Servers=$EnvDetailsInfo.AppServers.Name
     $table=new-object "System.Data.DataTable"
     $ColumnNames='Env_ID','Env_Name','Owner','Thin_Client_Server','Restored_From_Backup','Last_Update','File_Share','Env_Note','Description','Build_ID','Locked','Env_ID1','Server_ID','Server_ID1','Server_Name','OS_Version','Application_Server_Name'
@@ -2722,15 +2730,19 @@ function Get-EndurDbVersion
 }
 
 function GetDbInfoByTypeForEnvWithArray([string] $strEnvironment, [string] $strType) {
+    $DOrcToken = Get-DorcToken 
+    $DorcAPIHeaders = @{
+        "Authorization" = "Bearer $DOrcToken" 
+    }
     $securePassword = ConvertTo-SecureString $DorcApiAccessPassword -AsPlainText -Force
     $credentials = New-Object System.Management.Automation.PSCredential ($DorcApiAccessAccount, $securePassword)
     $uri=$RefDataApiUrl + 'RefDataEnvironments?env=' + $strEnvironment
 	write-host "GetDbInfoByTypeForEnvWithArray Uri is:" $uri
-    $EnvId=(Invoke-RestMethod -Uri $uri -method Get -Credential $credentials -ContentType 'application/json').EnvironmentId
+    $EnvId=(Invoke-RestMethod -Uri $uri -method Get -Headers $DorcAPIHeaders -ContentType 'application/json').EnvironmentId
 	write-host "EnvId" $EnvId 
     $uri=$RefDataApiUrl + 'RefDataEnvironmentsDetails/' + $EnvId
 	write-host "EnvironmentDetails Uri is:" $uri
-    $table=Invoke-RestMethod -Uri $uri -method Get -Credential $credentials -ContentType 'application/json'
+    $table=Invoke-RestMethod -Uri $uri -method Get -Headers $DorcAPIHeaders -ContentType 'application/json'
     $table=$table.DbServers | where {$_.Type -eq $strType} | Select Name, ServerName, ArrayName
     $strResult="Invalid"
     if ($table.Name.count -eq 0) {
@@ -3187,6 +3199,12 @@ function Set-SSISPackageParamters
     $catalog = $integrationServices.Catalogs.get_Item($ssisDb)
     $folder = $catalog.Folders[$environment]
     $envVarsSet = $false
+    
+    $DOrcToken = Get-DorcToken 
+    $DorcAPIHeaders = @{
+        "Authorization" = "Bearer $DOrcToken" 
+    }
+
     if ($catalog.Name.ToLower() -eq $ssisDb.ToLower()) {
         $isConfigs = Get-Childitem $packageFolderRoot -Recurse -File -Filter *.json
         if ($isConfigs.Count -gt 0) {
@@ -3204,7 +3222,7 @@ function Set-SSISPackageParamters
                                     $value = (get-variable $jsonParameter.DeployProperty -ErrorAction SilentlyContinue -WarningAction SilentlyContinue).Value
                                     $url = $DORC_PropertiesUrl #+ $jsonParameter.DeployProperty
                                     $ProgressPreference = "SilentlyContinue"
-                                    $propInfo = Invoke-WebRequest -UseDefaultCredentials $url | ConvertFrom-Json
+                                    $propInfo = Invoke-WebRequest $url -Headers $DorcAPIHeaders | ConvertFrom-Json
 									$propInfo = $propInfo|  where {$_.Name -eq $jsonParameter.DeployProperty}
                                     $ProgressPreference = "Continue"
                                     $isSecure = $propInfo.Secure #IsSecured
@@ -3246,7 +3264,7 @@ function Set-SSISPackageParamters
                                     $value = (get-variable $jsonParameter.DeployProperty -ErrorAction SilentlyContinue -WarningAction SilentlyContinue).Value
                                     $url = $DORC_PropertiesUrl #+ $jsonParameter.DeployProperty
                                     $ProgressPreference = "SilentlyContinue"
-                                    $propInfo = Invoke-WebRequest -UseDefaultCredentials $url | ConvertFrom-Json
+                                    $propInfo = Invoke-WebRequest $url -Headers $DorcAPIHeaders | ConvertFrom-Json
 									$propInfo = $propInfo|  where {$_.Name -eq $jsonParameter.DeployProperty}
                                     $ProgressPreference = "Continue"
                                     $isSecure = $propInfo.Secure #IsSecured
@@ -4116,6 +4134,7 @@ function Get-AzAccessTokenToResource {
     $AccessTokenToResource = Get-AzAccessToken -ResourceUrl $ResourceUrl
     return $AccessTokenToResource
 }
+
 function DeployDACPACToAzureSQL {
     [CmdletBinding()]
     param (
@@ -4174,3 +4193,35 @@ function DeployDACPACToAzureSQL {
     }
 }
 
+function Get-DorcToken {   
+    $DorcIDSsecret =  $DorcCliSecret
+	
+    if ([string]::IsNullOrWhiteSpace($DorcIDSsecret)) {
+        Write-Error "The DorcIDSsecret is empty or null. Please provide a valid value."
+        return $null
+    }	
+    $IDSHeaders = @{
+        "Content-Type" = "application/x-www-form-urlencoded"
+    }
+    $IDSFormData = @{
+        "grant_type"    = "client_credentials"
+        "client_id"     = "dorc-cli"
+        "client_secret" = "$DorcIDSsecret"
+        "scope"         = "dorc-api.manage" 
+    }
+
+    try {
+        $DorcApiUrl = "https://deploymentportal:8443"        
+        $DorcApiUrl = $DorcApiUrl.TrimEnd('/')
+        $IDSBaseURL = Invoke-WebRequest -Uri "$DorcApiUrl/ApiConfig" | ConvertFrom-Json
+        $IDSBaseURL = $IDSBaseURL.OAuthAuthority + "/connect/token"        
+        Write-Host "Token endpoint is: $IDSBaseURL"        
+        $IDSResponse = Invoke-WebRequest -Uri $IDSBaseURL -Method POST -Headers $IDSHeaders -Body $IDSFormData
+        $TokenResponse = $IDSResponse.Content | ConvertFrom-Json        
+        return $TokenResponse.access_token
+    } catch {
+		  Write-Error "Failed to retrieve token. Please check DorcIDSsecret variable value! Error: $_"
+		  Throw
+		  return $null
+    }
+}
