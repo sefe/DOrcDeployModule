@@ -346,13 +346,9 @@ function InstallMSI([string] $strComputerName, [string] $strMSIFullName, $arrPar
     $strUNCMSIName = Join-Path $DestFolder $strMSIName
     if ($arrParameters.Count -gt 0) {
         Write-Host "[InstallMSI] Attempting to install:" $strMSIFullName "on:" $strComputerName "with the following parameters:"
+        
         foreach ($strParameter in $arrParameters) {
-            if (($strParameter.ToLower().Contains("password")) -or ($strParameter.ToLower().Contains("pswd")) -or ($strParameter.ToLower().Contains("pass"))) {
-                Write-Host "    "$strParameter.Split("=")[0]
-            }
-            else {
-                Write-Host "    " $strParameter
-            }
+            Write-Host "    " (Format-ParameterForLogging -Parameter $strParameter)
             $strAllParameters = $strAllParameters + " " + $strParameter.replace('%','%%')
         }
     }
@@ -1015,8 +1011,13 @@ function RunMTMTests($arrParameters) {
     $bolReturn = $false
     if ($arrParameters.Count -gt 0) {
         foreach ($strParameter in $arrParameters) {
-            Write-Host "Setting" $strParameter.Split("=")[0] "to:" $strParameter.Split("=")[1]
-            Set-Variable -Name  $strParameter.Split("=")[0] -Value $strParameter.Split("=")[1]
+            $parameterName = $strParameter.Split("=")[0]
+            $parameterValue = $strParameter.Split("=")[1]
+            
+            $safeDisplay = Format-ParameterForLogging -Parameter $strParameter
+            Write-Host "Setting $safeDisplay"
+            
+            Set-Variable -Name $parameterName -Value $parameterValue
         }
         ## Sync
         $UpdateParams = " testcase /import /collection:" + $TFSInstance + " /teamproject:" + $TFSTeamProject + " /storage:" + $TestDll + " /syncsuite:" + $TestSuite
