@@ -3223,7 +3223,7 @@ function Set-SSISPackageParamters
                                     $value = (get-variable $jsonParameter.DeployProperty -ErrorAction SilentlyContinue -WarningAction SilentlyContinue).Value
                                     $url = $DORC_PropertiesUrl #+ $jsonParameter.DeployProperty
                                     $ProgressPreference = "SilentlyContinue"
-                                    $propInfo = Invoke-WebRequest $url -Headers $DorcAPIHeaders | ConvertFrom-Json
+                                    $propInfo = Invoke-WebRequest $url -Headers $DorcAPIHeaders -UseBasicParsing | ConvertFrom-Json
 									$propInfo = $propInfo|  where {$_.Name -eq $jsonParameter.DeployProperty}
                                     $ProgressPreference = "Continue"
                                     $isSecure = $propInfo.Secure #IsSecured
@@ -3265,7 +3265,7 @@ function Set-SSISPackageParamters
                                     $value = (get-variable $jsonParameter.DeployProperty -ErrorAction SilentlyContinue -WarningAction SilentlyContinue).Value
                                     $url = $DORC_PropertiesUrl #+ $jsonParameter.DeployProperty
                                     $ProgressPreference = "SilentlyContinue"
-                                    $propInfo = Invoke-WebRequest $url -Headers $DorcAPIHeaders | ConvertFrom-Json
+                                    $propInfo = Invoke-WebRequest $url -Headers $DorcAPIHeaders -UseBasicParsing | ConvertFrom-Json
 									$propInfo = $propInfo|  where {$_.Name -eq $jsonParameter.DeployProperty}
                                     $ProgressPreference = "Continue"
                                     $isSecure = $propInfo.Secure #IsSecured
@@ -4214,10 +4214,10 @@ function Get-DorcToken {
     try {
         $DorcApiUrl = "https://deploymentportal:8443"        
         $DorcApiUrl = $DorcApiUrl.TrimEnd('/')
-        $IDSBaseURL = Invoke-WebRequest -Uri "$DorcApiUrl/ApiConfig" | ConvertFrom-Json
+        $IDSBaseURL = Invoke-WebRequest -Uri "$DorcApiUrl/ApiConfig" -UseBasicParsing | ConvertFrom-Json
         $IDSBaseURL = $IDSBaseURL.OAuthAuthority + "/connect/token"        
         Write-Host "Token endpoint is: $IDSBaseURL"        
-        $IDSResponse = Invoke-WebRequest -Uri $IDSBaseURL -Method POST -Headers $IDSHeaders -Body $IDSFormData
+        $IDSResponse = Invoke-WebRequest -Uri $IDSBaseURL -Method POST -Headers $IDSHeaders -Body $IDSFormData -UseBasicParsing
         $TokenResponse = $IDSResponse.Content | ConvertFrom-Json        
         return $TokenResponse.access_token
     } catch {
