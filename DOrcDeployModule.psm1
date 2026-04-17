@@ -2501,38 +2501,43 @@ function GetSQLServerName([string] $strInstance) {
 function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [string] $strParams = "", [string] $strUser = "", [string] $strPassword = "", [switch]$IgnoreStdErr) {
     $bolResult = $true
     $strExecutableChild = $null
-    # Test for UNC to executable then check for user / password
-    $bolCredsOK = $false
+
+    # If the caller appended a child-process marker (e.g. NSIS ";Au_"), split
+    # it off up-front so later UNC handling sees a clean path.
+    if ($strExecutable.Contains(";")) {
+        $strExecutableChild = $strExecutable.Split(";")[1]
+        $strExecutable = $strExecutable.Split(";")[0]
+    }
+
+    # UNC inputs are staged onto the target via Copy-Item -ToSession further
+    # down. That streams bytes over the WinRM channel using the client's own
+    # identity, so the target never needs to reach back over SMB. This avoids
+    # the Windows double-hop problem (net use with explicit /user: from within
+    # a Network logon session fails with ERROR_NO_SUCH_LOGON_SESSION when the
+    # share is DFS-backed). $strUser / $strPassword are retained in the
+    # signature for backward-compatibility but are no longer consulted for UNC
+    # inputs.
+    $uncInput = $null
     if ($strExecutable.StartsWith("\\")) {
-        write-host "    UNC path has been detected, checking for username / password parameters..."
-        if ([String]::IsNullOrEmpty($strUser) -or [String]::IsNullOrEmpty($strPassword)) {
-            Write-Host "    Cannot continue as remote machine will be unable to connect out without credentials..."
-            $bolResult = $false
-        }
-        else {
-            $uncShare =  $strExecutable.SubString(0, $strExecutable.LastIndexOf("\"))
-            $strExecutable = $strExecutable.Replace($uncShare, "")
-            $uncShare = [char]34 + $uncShare + [char]34
-            write-host "    UNC Share: " $uncShare
-            write-host "    Executable:" $strExecutable
-            $bolCredsOK = $true
-        }
+        write-host "    UNC path detected - will stage on target via PSSession:" $strExecutable
+        $uncInput = $strExecutable
     }
-    else {
-        $bolCredsOK = $true
-    }
-    if ($bolCredsOK) {
-        $session = New-PSSession -ComputerName $ServerName
-        if ($strExecutable.Contains(";")) {
-            $strExecutableChild = $strExecutable.Split(";")[1]
-            $strExecutable = $strExecutable.Split(";")[0]
-        }
-        if ($strExecutable.StartsWith("\")) {
-            # Need to connect out...
-            Invoke-Command -session $session {net use * /d /y 2>&1>null}
-            Invoke-Command -session $session {net use S: $($args[0]) $($args[1]) /user:$($args[2]) 2>&1>null} -ArgumentList $uncShare, $strPassword, $strUser
-            $strExecutable = "S:" + $strExecutable
-            write-host "    Executable:" $strExecutable
+
+    $session = New-PSSession -ComputerName $ServerName
+    $stagedRemotePath = $null
+    try {
+        if ($uncInput) {
+            $stagedRemotePath = "C:\Windows\Temp\dorc-" + [guid]::NewGuid().ToString('N') + "-" + [IO.Path]::GetFileName($uncInput)
+            write-host "    Staging to target at:" $stagedRemotePath
+            try {
+                Copy-Item -ToSession $session -Path $uncInput -Destination $stagedRemotePath -Force -ErrorAction Stop
+            } catch {
+                write-host "    Copy-Item -ToSession failed:" $_.Exception.Message
+                $bolResult = $false
+                return $bolResult
+            }
+            $strExecutable = $stagedRemotePath
+            write-host "    Executable (staged):" $strExecutable
         }
         $result = Invoke-Command -session $session {$result = $false; if (Test-Path -Path $($args[0]) -PathType Leaf) { $result = $true }; return $result} -ArgumentList $strExecutable
         if ($result) {
@@ -2590,7 +2595,12 @@ function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [st
             write-host "    Unable to find:" $strExecutable "from" $ServerName
             $bolResult = $false
         }
-        if ($strExecutable.StartsWith("\\")) {Invoke-Command -session $session {net use * /d /y 2>&1>null}}
+    } finally {
+        if ($stagedRemotePath) {
+            try {
+                Invoke-Command -session $session { Remove-Item -Path $($args[0]) -Force -ErrorAction SilentlyContinue } -ArgumentList $stagedRemotePath | Out-Null
+            } catch { }
+        }
         Remove-PSSession $session
     }
     write-host "bolResult:" $bolResult
