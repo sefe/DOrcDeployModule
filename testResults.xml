@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="7" errors="0" failures="0" not-run="0" inconclusive="0" ignored="0" skipped="0" invalid="0" date="2026-04-17" time="08:08:40">
+  <environment os-version="6.17.0-1010-azure" nunit-version="2.5.8.0" user-domain="" machine-name="runnervm35a4x" cwd="/home/runner/work/dorc-ps-deploy-module/dorc-ps-deploy-module" platform="Linux" clr-version="8.0.25" user="runner" />
+  <culture-info current-culture="" current-uiculture="" />
+  <test-suite type="TestFixture" name="Pester" executed="True" result="Success" success="True" time="0.6179" asserts="0" description="Pester">
+    <results>
+      <test-suite type="TestFixture" name="/home/runner/work/dorc-ps-deploy-module/dorc-ps-deploy-module/DorcDeployModule.unit.tests.ps1" executed="True" result="Success" success="True" time="0.6179" asserts="0" description="/home/runner/work/dorc-ps-deploy-module/dorc-ps-deploy-module/DorcDeployModule.unit.tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Enhanced Parameter Security Tests" executed="True" result="Success" success="True" time="0.2586" asserts="0" description="Enhanced Parameter Security Tests">
+            <results>
+              <test-suite type="TestFixture" name="Enhanced Parameter Security Tests.Basic functionality" executed="True" result="Success" success="True" time="0.1799" asserts="0" description="Enhanced Parameter Security Tests.Basic functionality">
+                <results>
+                  <test-case description="Hides sensitive parameter names" name="Enhanced Parameter Security Tests.Basic functionality.Hides sensitive parameter names" time="0.1426" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Preserves non-sensitive parameters" name="Enhanced Parameter Security Tests.Basic functionality.Preserves non-sensitive parameters" time="0.0067" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Is case insensitive" name="Enhanced Parameter Security Tests.Basic functionality.Is case insensitive" time="0.0063" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="Enhanced Parameter Security Tests.Real secure property examples" executed="True" result="Success" success="True" time="0.2403" asserts="0" description="Enhanced Parameter Security Tests.Real secure property examples">
+                <results>
+                  <test-case description="Masks AccessKey in Azure SignalR connection string" name="Enhanced Parameter Security Tests.Real secure property examples.Masks AccessKey in Azure SignalR connection string" time="0.0121" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Masks Password in SQL connection string" name="Enhanced Parameter Security Tests.Real secure property examples.Masks Password in SQL connection string" time="0.0067" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Handles multiple secrets in one connection string" name="Enhanced Parameter Security Tests.Real secure property examples.Handles multiple secrets in one connection string" time="0.0064" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="Masks all examples of secret values" name="Enhanced Parameter Security Tests.Real secure property examples.Masks all examples of secret values" time="0.0281" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+    </results>
+  </test-suite>
+</test-results>
