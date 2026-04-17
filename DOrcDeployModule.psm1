@@ -2614,9 +2614,17 @@ function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [st
     return $bolResult
 }
 
+function Open-RemoteRegistryHive([string] $serverName) {
+    # Thin wrapper around [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey
+    # to make Find-RemoteNSIS testable via Pester Mock — Pester cannot mock
+    # static .NET methods directly, so the registry access is isolated here
+    # and the logic under test just sees an injectable cmdlet.
+    return [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $serverName)
+}
+
 function Find-RemoteNSIS([string] $serverName, [string] $productString) {
     $strUninstallString = "None"
-    $Reg = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $serverName)
+    $Reg = Open-RemoteRegistryHive $serverName
     $RegKey_x32 = $Reg.OpenSubKey("SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall")
     $RegKey_x64 = $Reg.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall")
     foreach ($subKeyName in $RegKey_x32.GetSubKeyNames()) {
@@ -3554,14 +3562,18 @@ Function Get-DorcCredSSPStatus {
     #>
     
     
-    #requires -RunAsAdministrator
-        
+    # Historical "#requires -RunAsAdministrator" directive removed from
+    # this location — that directive applies at script/module-import time
+    # even when indented inside a function body, which blocks importing the
+    # module for unit tests on a non-elevated CI agent. The equivalent
+    # check is enforced at call time via the IsInRole check below.
+
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
-        [String]        
+        [String]
         $ComputerName,
-        
+
         [Parameter(Mandatory = $true)]
         [pscredential]
         $Credential,
@@ -3570,7 +3582,12 @@ Function Get-DorcCredSSPStatus {
         [switch]
         $Test
     )
-    
+
+    $currentPrincipal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+    if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw "Get-DorcCredSSPStatus requires the session to be running as Administrator."
+    }
+
     $params = @{}
 
     if ($PSBoundParameters['ComputerName']) {
