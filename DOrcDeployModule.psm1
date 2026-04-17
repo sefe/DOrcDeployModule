@@ -2622,6 +2622,15 @@ function Open-RemoteRegistryHive([string] $serverName) {
     return [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $serverName)
 }
 
+function Test-IsRunningAsAdministrator {
+    # Thin wrapper around the WindowsPrincipal.IsInRole(Administrator) call.
+    # Callers that require elevation (e.g. Get-DorcCredSSPStatus) should
+    # throw if this returns $false. Extracted as a cmdlet so tests can mock
+    # the result without actually elevating.
+    $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 function Find-RemoteNSIS([string] $serverName, [string] $productString) {
     $strUninstallString = "None"
     $Reg = Open-RemoteRegistryHive $serverName
@@ -3583,8 +3592,7 @@ Function Get-DorcCredSSPStatus {
         $Test
     )
 
-    $currentPrincipal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
-    if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    if (-not (Test-IsRunningAsAdministrator)) {
         throw "Get-DorcCredSSPStatus requires the session to be running as Administrator."
     }
 

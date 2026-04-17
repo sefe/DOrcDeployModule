@@ -73,10 +73,8 @@ jobs:
         shell: pwsh
         run: |
           # Install Pester 5 (windows-latest agents ship with Pester 3) and
-          # run the focused NSIS-fix test suite. Kept narrow on purpose —
-          # the older DOrcDeployModule.tests.ps1 and DorcDeployModule.unit.tests.ps1
-          # files have not been maintained to run in CI and are excluded to
-          # avoid false failures.
+          # run every *.tests.ps1 in the repo root. Non-zero exit on failure
+          # gates the CI step.
           if (-not (Get-Module -ListAvailable Pester |
                     Where-Object { $_.Version -ge [version]'5.0.0' })) {
               Install-Module -Name Pester -MinimumVersion 5.0.0 -Force -SkipPublisherCheck -Scope CurrentUser
@@ -84,7 +82,7 @@ jobs:
           Import-Module Pester -MinimumVersion 5.0.0 -Force
 
           $cfg = New-PesterConfiguration
-          $cfg.Run.Path             = './DOrcDeployModule.nsis.tests.ps1'
+          $cfg.Run.Path             = './'
           $cfg.Run.Exit             = $true  # non-zero exit on failure — gates the CI step
           $cfg.Output.Verbosity     = 'Detailed'
           $cfg.TestResult.Enabled   = $true
