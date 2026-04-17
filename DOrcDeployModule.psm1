@@ -2527,7 +2527,12 @@ function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [st
     $stagedRemotePath = $null
     try {
         if ($uncInput) {
-            $stagedRemotePath = "C:\Windows\Temp\dorc-" + [guid]::NewGuid().ToString('N') + "-" + [IO.Path]::GetFileName($uncInput)
+            # Resolve the target's TEMP directory rather than hard-coding
+            # C:\Windows\Temp — Windows can be installed on a different drive
+            # and %TEMP% on a service account is typically what we want anyway.
+            $remoteTempDir = Invoke-Command -session $session { $env:TEMP }
+            if ([string]::IsNullOrEmpty($remoteTempDir)) { $remoteTempDir = 'C:\Windows\Temp' }
+            $stagedRemotePath = [IO.Path]::Combine($remoteTempDir, "dorc-" + [guid]::NewGuid().ToString('N') + "-" + [IO.Path]::GetFileName($uncInput))
             write-host "    Staging to target at:" $stagedRemotePath
             try {
                 Copy-Item -ToSession $session -Path $uncInput -Destination $stagedRemotePath -Force -ErrorAction Stop
@@ -2601,7 +2606,9 @@ function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [st
                 Invoke-Command -session $session { Remove-Item -Path $($args[0]) -Force -ErrorAction SilentlyContinue } -ArgumentList $stagedRemotePath | Out-Null
             } catch { }
         }
-        Remove-PSSession $session
+        # Session teardown can throw if the session has already faulted;
+        # swallow to keep the real execution result intact.
+        try { Remove-PSSession $session -ErrorAction SilentlyContinue } catch { }
     }
     write-host "bolResult:" $bolResult
     return $bolResult
@@ -2632,6 +2639,9 @@ function Find-RemoteNSIS([string] $serverName, [string] $productString) {
     # into Test-Path and ProcessStartInfo.FileName, both of which treat a
     # leading quote as part of the literal path — so the quotes must be
     # stripped or every uninstall attempt silently fails to find the file.
+    # Guard against a missing/empty UninstallString value (GetValue returns
+    # $null) and fall through to the "None" sentinel in that case.
+    if ([string]::IsNullOrEmpty($strUninstallString)) { return "None" }
     return $strUninstallString.Trim('"')
 }
 
