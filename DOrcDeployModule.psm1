@@ -2588,6 +2588,7 @@ function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [st
         }
         else {
             write-host "    Unable to find:" $strExecutable "from" $ServerName
+            $bolResult = $false
         }
         if ($strExecutable.StartsWith("\\")) {Invoke-Command -session $session {net use * /d /y 2>&1>null}}
         Remove-PSSession $session
@@ -2620,10 +2621,16 @@ function Find-RemoteNSIS([string] $serverName, [string] $productString) {
 }
 
 function Remove-NSISErlang([string] $serverName) {
-    $arrDirectories = New-Object System.Collections.ArrayList($null) 
+    $arrDirectories = New-Object System.Collections.ArrayList($null)
     $remErlang = Find-RemoteNSIS $serverName "Erlang"
+    $maxAttempts = 5
+    $attempts = 0
     do {
         if ($remErlang -ne "None") {
+            if ($attempts -ge $maxAttempts) {
+                throw "Remove-NSISErlang: exceeded $maxAttempts attempts on $serverName; uninstall string '$remErlang' still present after each attempt. The uninstall registry entry may be stale (pointing at a file that no longer exists)."
+            }
+            $attempts++
             write-host "    Uninstall string:" $remErlang
             $remErlang += ";Au_"
             $bolResult = (Invoke-RemoteProcess $serverName $remErlang "/S")[0]
@@ -2644,10 +2651,16 @@ function Remove-NSISErlang([string] $serverName) {
 }
 
 function Remove-NSISRabbitMQ([string] $serverName) {
-    $arrDirectories = New-Object System.Collections.ArrayList($null) 
+    $arrDirectories = New-Object System.Collections.ArrayList($null)
     $remRabbit = Find-RemoteNSIS $serverName "RabbitMQ"
+    $maxAttempts = 5
+    $attempts = 0
     do {
         if ($remRabbit -ne "None") {
+            if ($attempts -ge $maxAttempts) {
+                throw "Remove-NSISRabbitMQ: exceeded $maxAttempts attempts on $serverName; uninstall string '$remRabbit' still present after each attempt. The uninstall registry entry may be stale (pointing at a file that no longer exists)."
+            }
+            $attempts++
             write-host "    Uninstall string:" $remRabbit
             $remRabbit += ";Au_"
             $bolResult = (Invoke-RemoteProcess $serverName $remRabbit "/S")[0]
