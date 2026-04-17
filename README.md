@@ -1,4 +1,4 @@
-# DOrcDeployModule
+# DOrc PowerShell Deploy Module
 
 ## Description
 
