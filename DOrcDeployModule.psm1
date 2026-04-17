@@ -2617,7 +2617,12 @@ function Find-RemoteNSIS([string] $serverName, [string] $productString) {
         }
     }
     $erlangKey, $RegKey_x32, $RegKey_x64, $Reg = $null
-    return $strUninstallString
+    # NSIS stores UninstallString wrapped in double-quotes (per the NSIS
+    # convention for paths with spaces). Callers pass this value straight
+    # into Test-Path and ProcessStartInfo.FileName, both of which treat a
+    # leading quote as part of the literal path — so the quotes must be
+    # stripped or every uninstall attempt silently fails to find the file.
+    return $strUninstallString.Trim('"')
 }
 
 function Remove-NSISErlang([string] $serverName) {
