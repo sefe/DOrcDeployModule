@@ -110,7 +110,7 @@ function CheckDiskSpace([string[]] $servers, [int] $minMB = 100) {
     Write-Host "  Checking disk space..."
     foreach ($server in $servers) {
         $serv = "[" + $server.Trim() + "]"
-        $ntfsVolumes = Get-WmiObject -Class win32_volume -cn $server | Where-Object {($_.FileSystem -eq "NTFS") -and ($_.driveletter)}
+        $ntfsVolumes = Get-CimInstance -ClassName Win32_Volume -ComputerName $server | Where-Object {($_.FileSystem -eq "NTFS") -and ($_.driveletter)}
         foreach ($ntfsVolume in $ntfsVolumes) {
             #Considered checking for the existance of the pagefile file but it could be on C: which we care about (either orphaned or current)
             if ($ntfsVolume.DriveLetter -eq "P:") { write-host "     " $ntfsVolume.DriveLetter "Skipped..."}
@@ -135,7 +135,7 @@ function CheckDiskSpace([string[]] $servers, [int] $minMB = 100) {
 function UnInstallProducts([string] $strComputerName, $ProductsToRemove) {
     $bolReturn = $true
     if (CheckDiskSpace $strComputerName) {
-        $Products = Get-WmiObject Win32_Product -ComputerName $strComputerName
+        $Products = Get-CimInstance -ClassName Win32_Product -ComputerName $strComputerName
         foreach ($Product in $Products) {
             foreach ($strProductName in $ProductsToRemove) {
                 if ($Product.Name -ne $null) {
@@ -177,7 +177,7 @@ function RemoveMSI([string] $strComputerName, [string] $strMSIFullName, $Product
         Write-Host "Attempting to remove using msi ProductCode"
         $bolReturn = UninstallProduct -strComputerName $strComputerName -strMSIFullName $strMSIFullName
 
-        $Products = Get-WmiObject Win32_Product -ComputerName $strComputerName
+        $Products = Get-CimInstance -ClassName Win32_Product -ComputerName $strComputerName
         foreach ($Product in $Products) {
             foreach ($strProductName in $ProductsToRemove) {
                 if ($Product.Name -ne $null) {
@@ -269,7 +269,7 @@ function UninstallProduct([string] $strComputerName, [string] $strMSIFullName) {
         $Stream.Close()
         $Script = "&$strLocalInstallScript"
         $ScriptBlock = $executioncontext.invokecommand.NewScriptBlock($Script)
-        $Result = Invoke-Command -Computer $strComputerName -ScriptBlock $ScriptBlock
+        $Result = Invoke-Command -ComputerName $strComputerName -ScriptBlock $ScriptBlock
         Start-Sleep -Seconds 10
         if (Test-Path $strUNCLogFileName) {
             $bolExtraAnalysis = $false
@@ -404,7 +404,7 @@ function InstallMSI([string] $strComputerName, [string] $strMSIFullName, $arrPar
         if ($CredSSPEnabled -eq $true) {
             Write-Host "[InstallMSI] Performing CredSSP authentication installation..."
             try {
-                 $Result = Invoke-Command -Computer $strComputerName -ScriptBlock { Start-Process -FilePath $using:strLocalInstallScript -Verb runAs -Wait } -Authentication CredSSP -Credential $Credential -ErrorAction Stop
+                 $Result = Invoke-Command -ComputerName $strComputerName -ScriptBlock { Start-Process -FilePath $using:strLocalInstallScript -Verb runAs -Wait } -Authentication CredSSP -Credential $Credential -ErrorAction Stop
             }
             catch {
                 Throw "[InstallMSI] Failed to establish remote PS session to $strComputerName using CredSSP authentication."
@@ -415,7 +415,7 @@ function InstallMSI([string] $strComputerName, [string] $strMSIFullName, $arrPar
             $Script = "&$strLocalInstallScript"
             $ScriptBlock = $executioncontext.invokecommand.NewScriptBlock($Script)
 
-            $Result = Invoke-Command -Computer $strComputerName -ScriptBlock $ScriptBlock
+            $Result = Invoke-Command -ComputerName $strComputerName -ScriptBlock $ScriptBlock
         }
 
         Start-Sleep -Seconds 10
@@ -491,7 +491,7 @@ function GACAdder([string] $strAction, [string] $strServer, [string] $strLibrary
     `$publish.$strGACFunction('$strLibrary')
 "@
     $ScriptBlock = $executioncontext.invokecommand.NewScriptBlock($Script)
-    $Result = Invoke-Command -Computer $strServer -ScriptBlock $ScriptBlock | Out-Host
+    $Result = Invoke-Command -ComputerName $strServer -ScriptBlock $ScriptBlock | Out-Host
     Write-Host $Result
 }
 
@@ -936,7 +936,7 @@ function Stop-Services {
         $strRemServiceName = $null
         $strRemServiceStatus = $null
         $strServiceNameGen = $strService + "*"
-        $oService = Get-Service $strServiceNameGen -computer $strComputer | select -First 1 #ensure only 1 service processed at a time
+        $oService = Invoke-Command -ComputerName $strComputer -ScriptBlock { param($svc) Get-Service $svc } -ArgumentList $strServiceNameGen | Select-Object -First 1 #ensure only 1 service processed at a time
         $strRemServiceName = $oService.Name
         $strRemServiceStatus = $oService.Status
         $oService = $null
@@ -948,17 +948,17 @@ function Stop-Services {
                     write-host "      Attempt to stop number:" ($i + 1)
                     Invoke-Command -ComputerName $strComputer { param($strService) Stop-Service $strService -Force} -Args $strService
                     Start-Sleep $retryTime
-                    $oService = Get-Service $strRemServiceName -computer $strComputer
+                    $oService = Invoke-Command -ComputerName $strComputer -ScriptBlock { param($svc) Get-Service $svc } -ArgumentList $strRemServiceName
                     $strRemServiceStatus = $oService.Status
                     if ($strRemServiceStatus -eq "Stopped") {break}
                     if ($i -eq $retryCount) {
                         $ServicePID = $null
-                        $ServicePID = (get-wmiobject win32_service -computername $strComputer | where { $_.name -eq $strService}).processID
+                        $ServicePID = (Get-CimInstance -ClassName Win32_Service -ComputerName $strComputer -Filter "Name='$strService'").ProcessId
                         write-host "      Killing PID:" $ServicePID
                         Invoke-Command -ComputerName $strComputer {param($ServicePID) Stop-Process $ServicePID -Force} -Args $ServicePID -ErrorAction SilentlyContinue
                     }
                 }
-                $oService = Get-Service $strRemServiceName -computer $strComputer
+                $oService = Invoke-Command -ComputerName $strComputer -ScriptBlock { param($svc) Get-Service $svc } -ArgumentList $strRemServiceName
                 $strRemServiceStatus = $oService.Status
                 if ($strRemServiceStatus -ne "Stopped") {throw "    " + $strRemServiceName + "is still" + $oService.Status}
                 else {write-host "   "$strRemServiceName "has been stopped"}
@@ -978,17 +978,17 @@ function StartServices($arrServiceList, [string] $strComputer) {
         $strRemServiceName = $null
         $strRemServiceStatus = $null
         $strServiceNameGen = $strService + "*"
-        $oService = Get-Service $strServiceNameGen -computer $strComputer
+        $oService = Invoke-Command -ComputerName $strComputer -ScriptBlock { param($svc) Get-Service $svc } -ArgumentList $strServiceNameGen
         $strRemServiceName = $oService.Name
         $strRemServiceStatus = $oService.Status
         $oService = $null
         if ($strRemServiceName -eq $strService) {
             if ($strRemServiceStatus -eq "Stopped") {
                 Write-Host "    Starting" $strService "on" $strComputer
-                Get-WmiObject -Class win32_service -Filter "Name = '$($strService)'"-ComputerName $strComputer -EnableAllPrivileges | Invoke-WmiMethod -Name StartService -ErrorAction Stop
+                Invoke-Command -ComputerName $strComputer -ScriptBlock { param($svc) Start-Service $svc } -ArgumentList $strService -ErrorAction Stop
                 start-sleep -Seconds 5
                 For ($i=0; $i -le 10; $i++) {
-                    $oService = Get-Service $strServiceNameGen -computer $strComputer
+                    $oService = Invoke-Command -ComputerName $strComputer -ScriptBlock { param($svc) Get-Service $svc } -ArgumentList $strServiceNameGen
                     $strRemServiceStatus = $oService.Status
                     If ($strRemServiceStatus -eq "Running") {write-host "Running";break}
                     Write-Host "    wait 10 seconds"
@@ -1086,7 +1086,7 @@ function Start-Services {
     )
     foreach ($strService in $arrServiceList) { 
         $oService = $null
-        $oService = Get-Service $strService -computer $strComputer -ErrorAction SilentlyContinue
+        $oService = Invoke-Command -ComputerName $strComputer -ScriptBlock { param($svc) Get-Service $svc -ErrorAction SilentlyContinue } -ArgumentList $strService
         if ($oService) {
             if ($oService.Status -eq "Running") {Write-Host "   "$strService "on" $strComputer "is" $oService.Status", nothing to do..."}
             else {
@@ -1095,10 +1095,10 @@ function Start-Services {
                      Write-host "      Attempt to start number:" ($i + 1)
                      Invoke-Command -ComputerName $strComputer { param($strService) Start-Service $strService -ErrorAction SilentlyContinue} -Args $strService          
                      Start-Sleep $retryTime
-                     $oService = Get-Service $strService -computer $strComputer
+                     $oService = Invoke-Command -ComputerName $strComputer -ScriptBlock { param($svc) Get-Service $svc } -ArgumentList $strService
                      if ($oService.Status -eq "Running") {break}            
                 }
-                $oService = Get-Service $strService -computer $strComputer
+                $oService = Invoke-Command -ComputerName $strComputer -ScriptBlock { param($svc) Get-Service $svc } -ArgumentList $strService
                 if ($oService.Status -ne "Running") {throw "    " + $strService + "is still " + $oService.Status}
                 else {Write-host "   "$strService "has been started"}
             }            
@@ -1154,8 +1154,8 @@ function Restart-Servers {
     foreach	($TargetServer in $TargetServers) {
         $LastBootUpTime = $null
         try {
-            $wmi = Get-WmiObject -Class Win32_OperatingSystem -Computer $TargetServer -ErrorAction Stop
-            $LastBootUpTime = $wmi.ConvertToDateTime($wmi.LastBootUpTime)
+            $wmi = Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $TargetServer -ErrorAction Stop
+            $LastBootUpTime = $wmi.LastBootUpTime
         }
         catch {
             Write-Error $_ | out-string
@@ -1169,7 +1169,7 @@ function Restart-Servers {
         try {
             #reboot computer using WMI reboot method is more reliable than Restart-Computer
             Write-host "Rebooting $TargetServer using WMI"
-            Get-WmiObject Win32_OperatingSystem -ComputerName $TargetServer -EnableAllPrivileges -ErrorAction Stop | Invoke-WmiMethod -Name reboot -ErrorAction Stop | Out-Null
+            Invoke-CimMethod -ClassName Win32_OperatingSystem -ComputerName $TargetServer -MethodName reboot -ErrorAction Stop | Out-Null
         }
         catch {
             #last resort - use shutdown.exe
@@ -1197,11 +1197,11 @@ function Restart-Servers {
             #Check uptime
             $10min = New-TimeSpan -Minutes 10
             try {
-                $wmi = Get-WmiObject -Class Win32_OperatingSystem -Computer $TargetServer -ErrorAction Stop
-                $LastBootUpTime = $wmi.ConvertToDateTime($wmi.LastBootUpTime)
+                $wmi = Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $TargetServer -ErrorAction Stop
+                $LastBootUpTime = $wmi.LastBootUpTime
             }
             catch {
-                Write-verbose "WMI not yet available on server [$TargetServer]"
+                Write-verbose "CIM not yet available on server [$TargetServer]"
                 $LastBootUpTime = Get-Date 01/01/1900 #set way in past to fail the condition inside "until"
             }
                 
@@ -1667,7 +1667,7 @@ function InstFeature([string] $strComputerName, [string] $strFeature, [bool] $bo
         Invoke-Command -session $session {$ProgressPreference = "SilentlyContinue"}
         Invoke-Command -session $session {net use * $($args[0]) $($args[1]) /user:$($args[2]) 2>&1>null} -ArgumentList $strSourceSxSFolder, $DeploymentServiceAccountPassword, $DeploymentServiceAccount
         if ($bolAllSubFeatures) {	
-            if (((Get-WmiObject Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
+            if (((Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
                 Invoke-Command -session $session {Install-WindowsFeature -Name $($args[0]) -IncludeAllSubFeature -Source $($args[1]) | Out-Null} -ArgumentList $strFeature, $strSourceSxSFolder
             }
             else {
@@ -1675,7 +1675,7 @@ function InstFeature([string] $strComputerName, [string] $strFeature, [bool] $bo
             }
         }
         else {
-            if (((Get-WmiObject Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
+            if (((Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
                 Invoke-Command -session $session {Install-WindowsFeature -Name $($args[0]) -Source $($args[1]) | Out-Null} -ArgumentList $strFeature, $strSourceSxSFolder
             }
             else {                
@@ -1697,7 +1697,7 @@ function UnInstFeature([string] $strComputerName, [string] $strFeature, [bool] $
     if (CheckFeature $strComputerName $strFeature) {
         Write-Host "    Uninstalling:" $strFeature
         Invoke-Command -session $session {$ProgressPreference = "SilentlyContinue"}
-        if ( ((Get-WmiObject Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
+        if ( ((Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $strComputerName).Name).Contains("2012")) {
             Invoke-Command -session $session {Uninstall-WindowsFeature -Name $($args[0]) | Out-Null} -ArgumentList $strFeature
         }
         else {
@@ -2882,7 +2882,7 @@ function Check-ProductInstalled
 )
 {
     $installed = $false
-    $products = Get-WmiObject Win32_Product -ComputerName $serverName
+    $products = Get-CimInstance -ClassName Win32_Product -ComputerName $serverName
     foreach ($product in $products) { if ($product.Name.ToLower() -eq $productName.ToLower()) { $installed = $true } }
     $products = $null
     return $installed
@@ -2904,7 +2904,7 @@ function Install-WindowsFeaturesDorc
         foreach ($Row in $ServerInfo) {
             $serverName = $Row.Server_Name.Trim()
             $serverType = $Row.Application_Server_Name.Trim()
-            $remOS = Get-WmiObject Win32_OperatingSystem -ComputerName $serverName
+            $remOS = Get-CimInstance -ClassName Win32_OperatingSystem -ComputerName $serverName
             if ($remOS.Name -match "2008") {
                 write-host "[Install-WindowsFeaturesDorc] Target server O/S is 2008, skipping:" $serverName
             }
@@ -4245,19 +4245,22 @@ function Get-DorcToken {
     $IDSHeaders = @{
         "Content-Type" = "application/x-www-form-urlencoded"
     }
-    $IDSFormData = @{
-        "grant_type"    = "client_credentials"
-        "client_id"     = "dorc-cli"
-        "client_secret" = "$DorcIDSsecret"
-        "scope"         = "dorc-api.manage" 
-    }
 
     try {
-        $DorcApiUrl = "https://deploymentportal:8443"        
+        $DorcApiUrl = if ($RefDataApiUrl) { $RefDataApiUrl } else { "https://deploymentportal:8443" }
         $DorcApiUrl = $DorcApiUrl.TrimEnd('/')
-        $IDSBaseURL = Invoke-WebRequest -Uri "$DorcApiUrl/ApiConfig" -UseBasicParsing | ConvertFrom-Json
-        $IDSBaseURL = $IDSBaseURL.OAuthAuthority + "/connect/token"        
-        Write-Host "Token endpoint is: $IDSBaseURL"        
+        $ApiConfig = Invoke-WebRequest -Uri "$DorcApiUrl/ApiConfig" -UseBasicParsing | ConvertFrom-Json
+        $IDSBaseURL = $ApiConfig.OAuthAuthority + "/connect/token"
+        $ApiScope = ($ApiConfig.OAuthUiRequestedScopes -split ' ' | Where-Object { $_ -like '*.manage' } | Select-Object -First 1)
+        if (-not $ApiScope) { $ApiScope = "dorc-api.manage" }
+        Write-Host "Token endpoint is: $IDSBaseURL"
+        Write-Host "Using scope: $ApiScope"
+        $IDSFormData = @{
+            "grant_type"    = "client_credentials"
+            "client_id"     = "dorc-cli"
+            "client_secret" = "$DorcIDSsecret"
+            "scope"         = "$ApiScope"
+        }
         $IDSResponse = Invoke-WebRequest -Uri $IDSBaseURL -Method POST -Headers $IDSHeaders -Body $IDSFormData -UseBasicParsing
         $TokenResponse = $IDSResponse.Content | ConvertFrom-Json        
         return $TokenResponse.access_token
