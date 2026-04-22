@@ -2615,18 +2615,10 @@ function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [st
 }
 
 function Open-RemoteRegistryHive([string] $serverName) {
-    # Thin wrapper around [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey
-    # to make Find-RemoteNSIS testable via Pester Mock — Pester cannot mock
-    # static .NET methods directly, so the registry access is isolated here
-    # and the logic under test just sees an injectable cmdlet.
     return [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $serverName)
 }
 
 function Test-IsRunningAsAdministrator {
-    # Thin wrapper around the WindowsPrincipal.IsInRole(Administrator) call.
-    # Callers that require elevation (e.g. Get-DorcCredSSPStatus) should
-    # throw if this returns $false. Extracted as a cmdlet so tests can mock
-    # the result without actually elevating.
     $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
@@ -2651,13 +2643,6 @@ function Find-RemoteNSIS([string] $serverName, [string] $productString) {
         }
     }
     $erlangKey, $RegKey_x32, $RegKey_x64, $Reg = $null
-    # NSIS stores UninstallString wrapped in double-quotes (per the NSIS
-    # convention for paths with spaces). Callers pass this value straight
-    # into Test-Path and ProcessStartInfo.FileName, both of which treat a
-    # leading quote as part of the literal path — so the quotes must be
-    # stripped or every uninstall attempt silently fails to find the file.
-    # Guard against a missing/empty UninstallString value (GetValue returns
-    # $null) and fall through to the "None" sentinel in that case.
     if ([string]::IsNullOrEmpty($strUninstallString)) { return "None" }
     return $strUninstallString.Trim('"')
 }
@@ -3569,13 +3554,6 @@ Function Get-DorcCredSSPStatus {
     https://blogs.technet.microsoft.com/ashleymcglone/2016/08/30/powershell-remoting-kerberos-double-hop-solved-securely/
     https://support.microsoft.com/en-gb/help/4295591/credssp-encryption-oracle-remediation-error-when-to-rdp-to-azure-vm
     #>
-    
-    
-    # Historical "#requires -RunAsAdministrator" directive removed from
-    # this location — that directive applies at script/module-import time
-    # even when indented inside a function body, which blocks importing the
-    # module for unit tests on a non-elevated CI agent. The equivalent
-    # check is enforced at call time via the IsInRole check below.
 
     [CmdletBinding()]
     param (

@@ -12,19 +12,11 @@ Describe "Get-DorcCredSSPStatus tests" {
                     'nwtraders\administrator',
                     ('mypassword' | ConvertTo-SecureString -AsPlainText -Force))
 
-                # Bypass the admin-role guard (Get-DorcCredSSPStatus enforces
-                # it at call time; all remote operations are mocked anyway).
                 Mock -ModuleName DOrcDeployModule Test-IsRunningAsAdministrator { return $true }
 
-                # Client CredSSP enabled
                 Mock -ModuleName DOrcDeployModule Get-WSManCredSSP {
                     "The machine is configured to allow delegating fresh credentials to the following target(s): SERVER1`nThis computer is not configured to receive credentials from a remote client computer."
                 }
-                # Get-ServerOSVersion is the internal function the code actually
-                # uses for OS lookup (it wraps Get-CimInstance + a BuildNumber
-                # switch map). Mock it directly rather than trying to fake the
-                # CimInstance path — the test only cares that LocalOS/RemoteOS
-                # surface the string in the resulting object.
                 Mock -ModuleName DOrcDeployModule Get-ServerOSVersion { '10.0.17134' }
                 Mock -ModuleName DOrcDeployModule Invoke-Command {
                     "The machine is configured to allow delegating fresh credentials to the following target(s): SERVER1`nThis computer is configured to receive credentials from a remote client computer."
@@ -56,8 +48,6 @@ Describe "Get-DorcCredSSPStatus tests" {
                     'nwtraders\administrator',
                     ('mypassword' | ConvertTo-SecureString -AsPlainText -Force))
 
-                # Bypass the admin-role guard (Get-DorcCredSSPStatus enforces
-                # it at call time; all remote operations are mocked anyway).
                 Mock -ModuleName DOrcDeployModule Test-IsRunningAsAdministrator { return $true }
 
                 Mock -ModuleName DOrcDeployModule Get-WSManCredSSP {
@@ -87,8 +77,6 @@ Describe "Get-DorcCredSSPStatus tests" {
                     'nwtraders\administrator',
                     ('mypassword' | ConvertTo-SecureString -AsPlainText -Force))
 
-                # Bypass the admin-role guard (Get-DorcCredSSPStatus enforces
-                # it at call time; all remote operations are mocked anyway).
                 Mock -ModuleName DOrcDeployModule Test-IsRunningAsAdministrator { return $true }
 
                 Mock -ModuleName DOrcDeployModule Get-WSManCredSSP {
@@ -117,8 +105,6 @@ Describe "Get-DorcCredSSPStatus tests" {
                     'nwtraders\administrator',
                     ('mypassword' | ConvertTo-SecureString -AsPlainText -Force))
 
-                # Bypass the admin-role guard (Get-DorcCredSSPStatus enforces
-                # it at call time; all remote operations are mocked anyway).
                 Mock -ModuleName DOrcDeployModule Test-IsRunningAsAdministrator { return $true }
 
                 Mock -ModuleName DOrcDeployModule Get-WSManCredSSP {
@@ -147,8 +133,6 @@ Describe "Get-DorcCredSSPStatus tests" {
                     'nwtraders\administrator',
                     ('mypassword' | ConvertTo-SecureString -AsPlainText -Force))
 
-                # Bypass the admin-role guard (Get-DorcCredSSPStatus enforces
-                # it at call time; all remote operations are mocked anyway).
                 Mock -ModuleName DOrcDeployModule Test-IsRunningAsAdministrator { return $true }
 
                 Mock -ModuleName DOrcDeployModule Get-WSManCredSSP {
@@ -179,9 +163,6 @@ Describe "Get-DorcCredSSPStatus tests" {
                 ('mypassword' | ConvertTo-SecureString -AsPlainText -Force))
 
             Mock -ModuleName DOrcDeployModule Test-IsRunningAsAdministrator { return $true }
-            # Local WSMan / OS succeed, then the remote Invoke-Command (which
-            # the function uses to probe the target's WSMan state) fails —
-            # that's the path that produces the "Failed to connect..." throw.
             Mock -ModuleName DOrcDeployModule Get-WSManCredSSP {
                 "The machine is configured to allow delegating fresh credentials to the following target(s): SERVER1`nThis computer is not configured to receive credentials from a remote client computer."
             }
@@ -206,8 +187,6 @@ Describe "Enable-DorcCredSSP tests" {
                     'nwtraders\administrator',
                     ('mypassword' | ConvertTo-SecureString -AsPlainText -Force))
 
-                # Bypass the admin-role guard (Get-DorcCredSSPStatus enforces
-                # it at call time; all remote operations are mocked anyway).
                 Mock -ModuleName DOrcDeployModule Test-IsRunningAsAdministrator { return $true }
 
                 Mock -ModuleName DOrcDeployModule Get-DorcCredSSPStatus {
@@ -240,19 +219,12 @@ Describe "Enable-DorcCredSSP tests" {
                     ('mypassword' | ConvertTo-SecureString -AsPlainText -Force))
 
                 Mock -ModuleName DOrcDeployModule Test-IsRunningAsAdministrator { return $true }
-                # Enable-DorcCredSSP calls Enable-WSManCredSSP -Role Client
-                # on the local machine, which requires elevation — mock it
-                # away so the test runs on a non-elevated CI agent.
                 Mock -ModuleName DOrcDeployModule Enable-WSManCredSSP { }
 
-                # .CredSSPWorks needs to return False on the first call (before
-                # Enable-DorcCredSSP does its work) and True on the second
-                # (afterwards). A stateful counter on script scope alternates.
                 $script:mockCalled = 0
                 Mock -ModuleName DOrcDeployModule Get-DorcCredSSPStatus {
                     $script:mockCalled++
                     if ($script:mockCalled % 2 -eq 1) {
-                        # Odd run = False
                         return (New-Object psobject -Property @{
                             LocalComputerName             = $Env:COMPUTERNAME
                             RemoteComputerName            = "SERVER1"
@@ -267,7 +239,6 @@ Describe "Enable-DorcCredSSP tests" {
                             CredSSPWorks                  = "False"
                         })
                     }
-                    # Even run = True
                     return (New-Object psobject -Property @{
                         LocalComputerName             = $Env:COMPUTERNAME
                         RemoteComputerName            = "SERVER1"
@@ -282,13 +253,6 @@ Describe "Enable-DorcCredSSP tests" {
                         CredSSPWorks                  = "True"
                     })
                 }
-                # Invoke-Command is called twice: once to probe the remote
-                # machine's WSMan config (expects the "configured to receive"
-                # string), and once as the wrapper around Enable-WSManCredSSP
-                # -Role Server. The Enable path mustn't return any value —
-                # Enable-DorcCredSSP pipelines Invoke-Command's output as
-                # its return when there's no assignment, so leaking the probe
-                # string there pollutes the function's return.
                 Mock -ModuleName DOrcDeployModule Invoke-Command `
                     -ParameterFilter { $ScriptBlock -and $ScriptBlock.ToString() -match 'Enable-WSManCredSSP' } `
                     -MockWith { }  # emit nothing — real Enable-WSManCredSSP returns no output
@@ -302,9 +266,6 @@ Describe "Enable-DorcCredSSP tests" {
 
             It "Enables CredSSP successfully" {
                 $result = Enable-DorcCredSSP -ComputerName SERVER1 -Credential $script:TestCred
-                # The function prefixes the success message with "[INFO] " —
-                # the original test was written against an earlier version
-                # that didn't prefix it.
                 $result | Should -Be "[INFO] CredSSP Successfully enabled between [$Env:COMPUTERNAME] and [SERVER1]"
             }
         }
@@ -335,10 +296,6 @@ Describe "Enable-DorcCredSSP tests" {
         }
 
         It "Throws" {
-            # The function wraps the underlying Invoke-Command WinRM failure
-            # as "[ERROR] Failed to enable CredSSP on remote machine ...".
-            # Use a wildcard pattern — Pester's Should -Throw without
-            # wildcards does exact-match, not substring.
             { Enable-DorcCredSSP -ComputerName nonexistentcomputer -Credential $script:TestCred } |
                 Should -Throw '*Failed*'
         }
