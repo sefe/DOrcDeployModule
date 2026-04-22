@@ -2501,38 +2501,48 @@ function GetSQLServerName([string] $strInstance) {
 function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [string] $strParams = "", [string] $strUser = "", [string] $strPassword = "", [switch]$IgnoreStdErr) {
     $bolResult = $true
     $strExecutableChild = $null
-    # Test for UNC to executable then check for user / password
-    $bolCredsOK = $false
+
+    # If the caller appended a child-process marker (e.g. NSIS ";Au_"), split
+    # it off up-front so later UNC handling sees a clean path.
+    if ($strExecutable.Contains(";")) {
+        $strExecutableChild = $strExecutable.Split(";")[1]
+        $strExecutable = $strExecutable.Split(";")[0]
+    }
+
+    # UNC inputs are staged onto the target via Copy-Item -ToSession further
+    # down. That streams bytes over the WinRM channel using the client's own
+    # identity, so the target never needs to reach back over SMB. This avoids
+    # the Windows double-hop problem (net use with explicit /user: from within
+    # a Network logon session fails with ERROR_NO_SUCH_LOGON_SESSION when the
+    # share is DFS-backed). $strUser / $strPassword are retained in the
+    # signature for backward-compatibility but are no longer consulted for UNC
+    # inputs.
+    $uncInput = $null
     if ($strExecutable.StartsWith("\\")) {
-        write-host "    UNC path has been detected, checking for username / password parameters..."
-        if ([String]::IsNullOrEmpty($strUser) -or [String]::IsNullOrEmpty($strPassword)) {
-            Write-Host "    Cannot continue as remote machine will be unable to connect out without credentials..."
-            $bolResult = $false
-        }
-        else {
-            $uncShare =  $strExecutable.SubString(0, $strExecutable.LastIndexOf("\"))
-            $strExecutable = $strExecutable.Replace($uncShare, "")
-            $uncShare = [char]34 + $uncShare + [char]34
-            write-host "    UNC Share: " $uncShare
-            write-host "    Executable:" $strExecutable
-            $bolCredsOK = $true
-        }
+        write-host "    UNC path detected - will stage on target via PSSession:" $strExecutable
+        $uncInput = $strExecutable
     }
-    else {
-        $bolCredsOK = $true
-    }
-    if ($bolCredsOK) {
-        $session = New-PSSession -ComputerName $ServerName
-        if ($strExecutable.Contains(";")) {
-            $strExecutableChild = $strExecutable.Split(";")[1]
-            $strExecutable = $strExecutable.Split(";")[0]
-        }
-        if ($strExecutable.StartsWith("\")) {
-            # Need to connect out...
-            Invoke-Command -session $session {net use * /d /y 2>&1>null}
-            Invoke-Command -session $session {net use S: $($args[0]) $($args[1]) /user:$($args[2]) 2>&1>null} -ArgumentList $uncShare, $strPassword, $strUser
-            $strExecutable = "S:" + $strExecutable
-            write-host "    Executable:" $strExecutable
+
+    $session = New-PSSession -ComputerName $ServerName
+    $stagedRemotePath = $null
+    try {
+        if ($uncInput) {
+            # Resolve the target's TEMP directory rather than hard-coding
+            # C:\Windows\Temp — Windows can be installed on a different drive
+            # and %TEMP% on a service account is typically what we want anyway.
+            $remoteTempDir = Invoke-Command -session $session { $env:TEMP }
+            if ([string]::IsNullOrEmpty($remoteTempDir)) { $remoteTempDir = 'C:\Windows\Temp' }
+            $stagedRemotePath = [IO.Path]::Combine($remoteTempDir, "dorc-" + [guid]::NewGuid().ToString('N') + "-" + [IO.Path]::GetFileName($uncInput))
+            write-host "    Staging to target at:" $stagedRemotePath
+            try {
+                Copy-Item -ToSession $session -Path $uncInput -Destination $stagedRemotePath -Force -ErrorAction Stop
+            } catch {
+                write-host "    Copy-Item -ToSession failed:" $_.Exception.Message
+                $bolResult = $false
+                return $bolResult
+            }
+            $strExecutable = $stagedRemotePath
+            write-host "    Executable (staged):" $strExecutable
         }
         $result = Invoke-Command -session $session {$result = $false; if (Test-Path -Path $($args[0]) -PathType Leaf) { $result = $true }; return $result} -ArgumentList $strExecutable
         if ($result) {
@@ -2588,17 +2598,34 @@ function Invoke-RemoteProcess([string] $serverName, [string] $strExecutable, [st
         }
         else {
             write-host "    Unable to find:" $strExecutable "from" $ServerName
+            $bolResult = $false
         }
-        if ($strExecutable.StartsWith("\\")) {Invoke-Command -session $session {net use * /d /y 2>&1>null}}
-        Remove-PSSession $session
+    } finally {
+        if ($stagedRemotePath) {
+            try {
+                Invoke-Command -session $session { Remove-Item -Path $($args[0]) -Force -ErrorAction SilentlyContinue } -ArgumentList $stagedRemotePath | Out-Null
+            } catch { }
+        }
+        # Session teardown can throw if the session has already faulted;
+        # swallow to keep the real execution result intact.
+        try { Remove-PSSession $session -ErrorAction SilentlyContinue } catch { }
     }
     write-host "bolResult:" $bolResult
     return $bolResult
 }
 
+function Open-RemoteRegistryHive([string] $serverName) {
+    return [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $serverName)
+}
+
+function Test-IsRunningAsAdministrator {
+    $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
 function Find-RemoteNSIS([string] $serverName, [string] $productString) {
     $strUninstallString = "None"
-    $Reg = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey('LocalMachine', $serverName)
+    $Reg = Open-RemoteRegistryHive $serverName
     $RegKey_x32 = $Reg.OpenSubKey("SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall")
     $RegKey_x64 = $Reg.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall")
     foreach ($subKeyName in $RegKey_x32.GetSubKeyNames()) {
@@ -2616,14 +2643,21 @@ function Find-RemoteNSIS([string] $serverName, [string] $productString) {
         }
     }
     $erlangKey, $RegKey_x32, $RegKey_x64, $Reg = $null
-    return $strUninstallString
+    if ([string]::IsNullOrEmpty($strUninstallString)) { return "None" }
+    return $strUninstallString.Trim('"')
 }
 
 function Remove-NSISErlang([string] $serverName) {
-    $arrDirectories = New-Object System.Collections.ArrayList($null) 
+    $arrDirectories = New-Object System.Collections.ArrayList($null)
     $remErlang = Find-RemoteNSIS $serverName "Erlang"
+    $maxAttempts = 5
+    $attempts = 0
     do {
         if ($remErlang -ne "None") {
+            if ($attempts -ge $maxAttempts) {
+                throw "Remove-NSISErlang: exceeded $maxAttempts attempts on $serverName; uninstall string '$remErlang' still present after each attempt. The uninstall registry entry may be stale (pointing at a file that no longer exists)."
+            }
+            $attempts++
             write-host "    Uninstall string:" $remErlang
             $remErlang += ";Au_"
             $bolResult = (Invoke-RemoteProcess $serverName $remErlang "/S")[0]
@@ -2644,10 +2678,16 @@ function Remove-NSISErlang([string] $serverName) {
 }
 
 function Remove-NSISRabbitMQ([string] $serverName) {
-    $arrDirectories = New-Object System.Collections.ArrayList($null) 
+    $arrDirectories = New-Object System.Collections.ArrayList($null)
     $remRabbit = Find-RemoteNSIS $serverName "RabbitMQ"
+    $maxAttempts = 5
+    $attempts = 0
     do {
         if ($remRabbit -ne "None") {
+            if ($attempts -ge $maxAttempts) {
+                throw "Remove-NSISRabbitMQ: exceeded $maxAttempts attempts on $serverName; uninstall string '$remRabbit' still present after each attempt. The uninstall registry entry may be stale (pointing at a file that no longer exists)."
+            }
+            $attempts++
             write-host "    Uninstall string:" $remRabbit
             $remRabbit += ";Au_"
             $bolResult = (Invoke-RemoteProcess $serverName $remRabbit "/S")[0]
@@ -3514,16 +3554,13 @@ Function Get-DorcCredSSPStatus {
     https://blogs.technet.microsoft.com/ashleymcglone/2016/08/30/powershell-remoting-kerberos-double-hop-solved-securely/
     https://support.microsoft.com/en-gb/help/4295591/credssp-encryption-oracle-remediation-error-when-to-rdp-to-azure-vm
     #>
-    
-    
-    #requires -RunAsAdministrator
-        
+
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
-        [String]        
+        [String]
         $ComputerName,
-        
+
         [Parameter(Mandatory = $true)]
         [pscredential]
         $Credential,
@@ -3532,7 +3569,11 @@ Function Get-DorcCredSSPStatus {
         [switch]
         $Test
     )
-    
+
+    if (-not (Test-IsRunningAsAdministrator)) {
+        throw "Get-DorcCredSSPStatus requires the session to be running as Administrator."
+    }
+
     $params = @{}
 
     if ($PSBoundParameters['ComputerName']) {
