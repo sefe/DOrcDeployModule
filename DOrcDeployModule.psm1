@@ -141,7 +141,7 @@ function UnInstallProducts([string] $strComputerName, $ProductsToRemove) {
                 if ($Product.Name -ne $null) {
                     if ($strProductName.Contains("*") -and $Product.Name.Contains($strProductName.Replace("*", ""))) {
                         Write-Host "Removing:" $Product.Name " Version:" $Product.Version " GUID:" $Product.IdentifyingNumber " from" $strComputerName
-                        if ($Product.Uninstall().ReturnValue -eq 0) {
+                        if ((Invoke-CimMethod -InputObject $Product -MethodName Uninstall).ReturnValue -eq 0) {
                             Write-Host "          Success..."
                         }
                         else {
@@ -151,7 +151,7 @@ function UnInstallProducts([string] $strComputerName, $ProductsToRemove) {
                     }
                     if ($strProductName -eq $Product.Name) {
                         Write-Host "Removing:" $Product.Name " Version:" $Product.Version " GUID:" $Product.IdentifyingNumber " from" $strComputerName
-                        if ($Product.Uninstall().ReturnValue -eq 0) {
+                        if ((Invoke-CimMethod -InputObject $Product -MethodName Uninstall).ReturnValue -eq 0) {
                             Write-Host "          Success..."
                         }
                         else {
@@ -184,7 +184,7 @@ function RemoveMSI([string] $strComputerName, [string] $strMSIFullName, $Product
                     if ($strProductName.Contains("*") -and $Product.Name.Contains($strProductName.Replace("*", ""))) {
                         Write-Host "Removing:" $Product.Name " Version:" $Product.Version " GUID:" $Product.IdentifyingNumber " from" $strComputerName
                         Write-Host "Unable to uninstall based on Product Code, reverting to WMI"
-                        if ($Product.Uninstall().ReturnValue -eq 0) {
+                        if ((Invoke-CimMethod -InputObject $Product -MethodName Uninstall).ReturnValue -eq 0) {
                             Write-Host "          Success..."
                         }
                         else {
@@ -195,7 +195,7 @@ function RemoveMSI([string] $strComputerName, [string] $strMSIFullName, $Product
                     if ($strProductName -eq $Product.Name) {
                         Write-Host "Removing:" $Product.Name " Version:" $Product.Version " GUID:" $Product.IdentifyingNumber " from" $strComputerName
                         Write-Host "Unable to uninstall based on Product Code, reverting to WMI"
-                        if ($Product.Uninstall().ReturnValue -eq 0) {
+                        if ((Invoke-CimMethod -InputObject $Product -MethodName Uninstall).ReturnValue -eq 0) {
                             Write-Host "          Success..."
                         }
                         else {
