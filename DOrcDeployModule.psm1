@@ -132,26 +132,76 @@ function CheckDiskSpace([string[]] $servers, [int] $minMB = 100) {
     return $bolSpaceCheckOK
 } 
 
+function Get-InstalledMsiProducts([string] $strComputerName) {
+    # Fast, registry-based replacement for the notoriously slow Win32_Product WMI/CIM class.
+    # Enumerating Win32_Product forces the Windows Installer to run a consistency check
+    # (self-repair validation) against EVERY installed MSI on the target, which routinely
+    # takes 30-90+ seconds and spams MsiInstaller reconfiguration events into the event log.
+    # Reading the Uninstall registry hives is sub-second and side-effect free.
+    $results = @()
+    $uninstallKeys = @(
+        "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        "SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    $reg = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey("LocalMachine", $strComputerName)
+    try {
+        foreach ($uninstallKey in $uninstallKeys) {
+            $subkey = $reg.OpenSubKey($uninstallKey)
+            if ($null -eq $subkey) { continue }
+            foreach ($keyName in $subkey.GetSubKeyNames()) {
+                $prodKey = $reg.OpenSubKey($uninstallKey + "\" + $keyName)
+                if ($null -eq $prodKey) { continue }
+                $dispName = $prodKey.GetValue("DisplayName")
+                if (![String]::IsNullOrEmpty($dispName)) {
+                    # For per-machine MSI products the Uninstall subkey name is the ProductCode GUID.
+                    $isMsi = $keyName -match '^\{[0-9A-Fa-f\-]+\}$'
+                    $results += New-Object psobject -Property @{
+                        Name            = $dispName
+                        Version         = $prodKey.GetValue("DisplayVersion")
+                        ProductCode     = if ($isMsi) { $keyName } else { $null }
+                        UninstallString = $prodKey.GetValue("UninstallString")
+                        IsMsi           = $isMsi
+                    }
+                }
+                $prodKey.Close()
+            }
+            $subkey.Close()
+        }
+    }
+    finally {
+        $reg.Close()
+    }
+    return $results
+}
+
+function Remove-MsiProductByCode([string] $strComputerName, $Product) {
+    if ((-not $Product.IsMsi) -or [String]::IsNullOrEmpty($Product.ProductCode)) {
+        Write-Host "          No MSI ProductCode found in registry for" $Product.Name "- cannot uninstall via msiexec"
+        return $false
+    }
+    $exitCode = Invoke-Command -ComputerName $strComputerName -ScriptBlock {
+        param($code)
+        $p = Start-Process -FilePath "msiexec.exe" -ArgumentList "/x", $code, "/qn", "/norestart" -Wait -PassThru
+        return $p.ExitCode
+    } -ArgumentList $Product.ProductCode
+    # 0 = success, 3010 = success but a reboot is required
+    if ($exitCode -eq 0 -or $exitCode -eq 3010) {
+        return $true
+    }
+    Write-Host "          msiexec returned exit code" $exitCode "for" $Product.Name
+    return $false
+}
+
 function UnInstallProducts([string] $strComputerName, $ProductsToRemove) {
     $bolReturn = $true
     if (CheckDiskSpace $strComputerName) {
-        $Products = Get-CimInstance -ClassName Win32_Product -ComputerName $strComputerName
+        $Products = Get-InstalledMsiProducts $strComputerName
         foreach ($Product in $Products) {
             foreach ($strProductName in $ProductsToRemove) {
                 if ($Product.Name -ne $null) {
-                    if ($strProductName.Contains("*") -and $Product.Name.Contains($strProductName.Replace("*", ""))) {
-                        Write-Host "Removing:" $Product.Name " Version:" $Product.Version " GUID:" $Product.IdentifyingNumber " from" $strComputerName
-                        if ((Invoke-CimMethod -InputObject $Product -MethodName Uninstall).ReturnValue -eq 0) {
-                            Write-Host "          Success..."
-                        }
-                        else {
-                            $bolReturn = $false
-                            Write-Host "FAILED to remove" $Product.Name
-                        }
-                    }
-                    if ($strProductName -eq $Product.Name) {
-                        Write-Host "Removing:" $Product.Name " Version:" $Product.Version " GUID:" $Product.IdentifyingNumber " from" $strComputerName
-                        if ((Invoke-CimMethod -InputObject $Product -MethodName Uninstall).ReturnValue -eq 0) {
+                    if (($strProductName.Contains("*") -and $Product.Name.Contains($strProductName.Replace("*", ""))) -or ($strProductName -eq $Product.Name)) {
+                        Write-Host "Removing:" $Product.Name " Version:" $Product.Version " GUID:" $Product.ProductCode " from" $strComputerName
+                        if ((Remove-MsiProductByCode $strComputerName $Product) -eq $true) {
                             Write-Host "          Success..."
                         }
                         else {
@@ -177,32 +227,20 @@ function RemoveMSI([string] $strComputerName, [string] $strMSIFullName, $Product
         Write-Host "Attempting to remove using msi ProductCode"
         $bolReturn = UninstallProduct -strComputerName $strComputerName -strMSIFullName $strMSIFullName
 
-        $Products = Get-CimInstance -ClassName Win32_Product -ComputerName $strComputerName
+        $Products = Get-InstalledMsiProducts $strComputerName
         foreach ($Product in $Products) {
             foreach ($strProductName in $ProductsToRemove) {
                 if ($Product.Name -ne $null) {
-                    if ($strProductName.Contains("*") -and $Product.Name.Contains($strProductName.Replace("*", ""))) {
-                        Write-Host "Removing:" $Product.Name " Version:" $Product.Version " GUID:" $Product.IdentifyingNumber " from" $strComputerName
-                        Write-Host "Unable to uninstall based on Product Code, reverting to WMI"
-                        if ((Invoke-CimMethod -InputObject $Product -MethodName Uninstall).ReturnValue -eq 0) {
+                    if (($strProductName.Contains("*") -and $Product.Name.Contains($strProductName.Replace("*", ""))) -or ($strProductName -eq $Product.Name)) {
+                        Write-Host "Removing:" $Product.Name " Version:" $Product.Version " GUID:" $Product.ProductCode " from" $strComputerName
+                        Write-Host "Unable to uninstall based on Product Code, reverting to registry-based msiexec"
+                        if ((Remove-MsiProductByCode $strComputerName $Product) -eq $true) {
                             Write-Host "          Success..."
                         }
                         else {
                             $bolReturn = $false
                             Write-Host "FAILED to remove" $Product.Name
                         }
-                    }
-                    if ($strProductName -eq $Product.Name) {
-                        Write-Host "Removing:" $Product.Name " Version:" $Product.Version " GUID:" $Product.IdentifyingNumber " from" $strComputerName
-                        Write-Host "Unable to uninstall based on Product Code, reverting to WMI"
-                        if ((Invoke-CimMethod -InputObject $Product -MethodName Uninstall).ReturnValue -eq 0) {
-                            Write-Host "          Success..."
-                        }
-                        else {
-                            $bolReturn = $false
-                            Write-Host "FAILED to remove" $Product.Name
-                        }
-
                     }
                 }
             }
@@ -308,7 +346,7 @@ function UninstallProduct([string] $strComputerName, [string] $strMSIFullName) {
                 }
             }
             else {
-                Write-Host "Susccess criteria couldn't be found in the MSI log file..."
+                Write-Host "Success criteria couldn't be found in the MSI log file..."
                 if ($bolExtraAnalysis) {
                     $oErrorsFile = Get-ChildItem -Path $outputFolder -Filter "*_Errors.txt"
                     write-host "[WiLogUtl] Importing" $oErrorsFile.FullName
@@ -457,7 +495,7 @@ function InstallMSI([string] $strComputerName, [string] $strMSIFullName, $arrPar
                 }
             }
             else {
-                Write-Host "[InstallMSI] Susccess criteria couldn't be found in the MSI log file..."
+                Write-Host "[InstallMSI] Success criteria couldn't be found in the MSI log file..."
                 if ($bolExtraAnalysis) {
                     $oErrorsFile = Get-ChildItem -Path $outputFolder -Filter "*_Errors.txt"
                     write-host "[WiLogUtl] Importing" $oErrorsFile.FullName
