@@ -152,15 +152,15 @@ function Get-InstalledMsiProducts([string] $strComputerName) {
                 $prodKey = $reg.OpenSubKey($uninstallKey + "\" + $keyName)
                 if ($null -eq $prodKey) { continue }
                 $dispName = $prodKey.GetValue("DisplayName")
-                if (![String]::IsNullOrEmpty($dispName)) {
-                    # For per-machine MSI products the Uninstall subkey name is the ProductCode GUID.
-                    $isMsi = $keyName -match '^\{[0-9A-Fa-f\-]+\}$'
+                # Win32_Product only surfaces MSI-installed products; mirror that scope by
+                # returning only entries whose Uninstall key is a ProductCode GUID (per-machine MSI).
+                if ((![String]::IsNullOrEmpty($dispName)) -and ($keyName -match '^\{[0-9A-Fa-f\-]+\}$')) {
                     $results += New-Object psobject -Property @{
                         Name            = $dispName
                         Version         = $prodKey.GetValue("DisplayVersion")
-                        ProductCode     = if ($isMsi) { $keyName } else { $null }
+                        ProductCode     = $keyName
                         UninstallString = $prodKey.GetValue("UninstallString")
-                        IsMsi           = $isMsi
+                        IsMsi           = $true
                     }
                 }
                 $prodKey.Close()
