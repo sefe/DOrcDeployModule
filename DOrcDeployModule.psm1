@@ -138,7 +138,7 @@ function Get-InstalledMsiProducts([string] $strComputerName) {
     # (self-repair validation) against EVERY installed MSI on the target, which routinely
     # takes 30-90+ seconds and spams MsiInstaller reconfiguration events into the event log.
     # Reading the Uninstall registry hives is sub-second and side-effect free.
-    $results = @()
+    $results = New-Object System.Collections.ArrayList
     $uninstallKeys = @(
         "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
         "SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
@@ -152,16 +152,19 @@ function Get-InstalledMsiProducts([string] $strComputerName) {
                 $prodKey = $reg.OpenSubKey($uninstallKey + "\" + $keyName)
                 if ($null -eq $prodKey) { continue }
                 $dispName = $prodKey.GetValue("DisplayName")
-                # Win32_Product only surfaces MSI-installed products; mirror that scope by
-                # returning only entries whose Uninstall key is a ProductCode GUID (per-machine MSI).
-                if ((![String]::IsNullOrEmpty($dispName)) -and ($keyName -match '^\{[0-9A-Fa-f\-]+\}$')) {
-                    $results += New-Object psobject -Property @{
+                # Match Win32_Product's MSI-only scope: require the WindowsInstaller flag AND a
+                # well-formed ProductCode GUID key name. This avoids matching non-MSI products
+                # that happen to use GUID-like uninstall keys.
+                $isMsi = ($prodKey.GetValue("WindowsInstaller") -eq 1) -and `
+                         ($keyName -match '^\{[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}\}$')
+                if ((![String]::IsNullOrEmpty($dispName)) -and $isMsi) {
+                    [void]$results.Add([PSCustomObject]@{
                         Name            = $dispName
                         Version         = $prodKey.GetValue("DisplayVersion")
                         ProductCode     = $keyName
                         UninstallString = $prodKey.GetValue("UninstallString")
                         IsMsi           = $true
-                    }
+                    })
                 }
                 $prodKey.Close()
             }
@@ -179,11 +182,18 @@ function Remove-MsiProductByCode([string] $strComputerName, $Product) {
         Write-Host "          No MSI ProductCode found in registry for" $Product.Name "- cannot uninstall via msiexec"
         return $false
     }
-    $exitCode = Invoke-Command -ComputerName $strComputerName -ScriptBlock {
-        param($code)
-        $p = Start-Process -FilePath "msiexec.exe" -ArgumentList "/x", $code, "/qn", "/norestart" -Wait -PassThru
-        return $p.ExitCode
-    } -ArgumentList $Product.ProductCode
+    try {
+        $exitCode = Invoke-Command -ComputerName $strComputerName -ScriptBlock {
+            param($code)
+            $ErrorActionPreference = 'Stop'
+            $p = Start-Process -FilePath "msiexec.exe" -ArgumentList "/x", $code, "/qn", "/norestart" -Wait -PassThru
+            return $p.ExitCode
+        } -ArgumentList $Product.ProductCode -ErrorAction Stop
+    }
+    catch {
+        Write-Host "          Remote uninstall failed for" $Product.Name "-" $_.Exception.Message
+        return $false
+    }
     # 0 = success, 3010 = success but a reboot is required
     if ($exitCode -eq 0 -or $exitCode -eq 3010) {
         return $true
@@ -195,7 +205,13 @@ function Remove-MsiProductByCode([string] $strComputerName, $Product) {
 function UnInstallProducts([string] $strComputerName, $ProductsToRemove) {
     $bolReturn = $true
     if (CheckDiskSpace $strComputerName) {
-        $Products = Get-InstalledMsiProducts $strComputerName
+        try {
+            $Products = Get-InstalledMsiProducts $strComputerName
+        }
+        catch {
+            Write-Host "Failed to enumerate installed products on $strComputerName - $($_.Exception.Message)"
+            return $false
+        }
         foreach ($Product in $Products) {
             foreach ($strProductName in $ProductsToRemove) {
                 if ($Product.Name -ne $null) {
@@ -227,7 +243,13 @@ function RemoveMSI([string] $strComputerName, [string] $strMSIFullName, $Product
         Write-Host "Attempting to remove using msi ProductCode"
         $bolReturn = UninstallProduct -strComputerName $strComputerName -strMSIFullName $strMSIFullName
 
-        $Products = Get-InstalledMsiProducts $strComputerName
+        try {
+            $Products = Get-InstalledMsiProducts $strComputerName
+        }
+        catch {
+            Write-Host "Failed to enumerate installed products on $strComputerName - $($_.Exception.Message)"
+            return $false
+        }
         foreach ($Product in $Products) {
             foreach ($strProductName in $ProductsToRemove) {
                 if ($Product.Name -ne $null) {
