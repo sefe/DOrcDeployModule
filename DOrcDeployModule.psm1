@@ -2242,9 +2242,19 @@ Function DeployMSI {
         [Switch]$NoLogoffUsers
     )
     try {
-    	   Start-Sleep -s 10
+        # Bounded wait for the drop folder / MSI to become available, replacing a
+        # legacy unconditional 'Start-Sleep -s 10'. Returns as soon as the MSI is
+        # found; only waits (up to $DropFolderMaxWaitSeconds) when it isn't yet there.
+        $DropFolderMaxWaitSeconds = 10
+        $DropFolderPollSeconds = 1
+        $DropFolderWaited = 0
+        $msiFiles = @(Get-ChildItem -Path $DropFolder -Include $MSIFile -Recurse -ErrorAction SilentlyContinue)
+        while ($msiFiles.Count -eq 0 -and $DropFolderWaited -lt $DropFolderMaxWaitSeconds) {
+            Start-Sleep -Seconds $DropFolderPollSeconds
+            $DropFolderWaited += $DropFolderPollSeconds
+            $msiFiles = @(Get-ChildItem -Path $DropFolder -Include $MSIFile -Recurse -ErrorAction SilentlyContinue)
+        }
 
-        $msiFiles = Get-ChildItem -Path $DropFolder -Include $MSIFile -Recurse        
         if ($msiFiles.Count -eq 0) {
             throw "[ERROR][DeployMSI][$(Get-Date)] Could not find any files named $($MSIFile) in $DropFolder"
         }
