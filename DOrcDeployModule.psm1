@@ -1386,10 +1386,27 @@ function BuildServersOfType([string] $strEnvironment, [string] $strServers, [str
     return @(, $ServerInfoResult)
 }
 
-function DeployDACPAC([string] $sqlPackagePath, [string] $strInstance, [string] $strDatabase, [string] $strDACPAC, [string] $strPublishProfile, [array] $arrVariables, [string] $strBlackList, [string] $strRollbackMode = "None",[string] $EnvironmentPostScript="") {
+function DeployDACPAC([string] $sqlPackagePath, [string] $strInstance, [string] $strDatabase, [string] $strDACPAC, [string] $strPublishProfile, [array] $arrVariables, [string] $strBlackList, [string] $strRollbackMode = "None",[string] $EnvironmentPostScript="", [int] $QueryTimeout = 0) {
     Import-Module SqlServer -DisableNameChecking
     #TODO If database doesn't exist skip check for alter
     #TODO Database.WhiteList.xml in DevTools
+
+    # Resolve the SQL query timeout used for the pre/post custom SQL scripts.
+    # Precedence: explicit $QueryTimeout param > DACPACQueryTimeout DOrc property > code default (3600s).
+    if ($QueryTimeout -le 0) {
+        $QueryTimeout = 3600
+        $propQueryTimeout = Get-Variable -Name 'DACPACQueryTimeout' -ValueOnly -ErrorAction SilentlyContinue
+        if (-not [string]::IsNullOrWhiteSpace($propQueryTimeout)) {
+            $parsedQueryTimeout = 0
+            if ([int]::TryParse([string]$propQueryTimeout, [ref]$parsedQueryTimeout) -and $parsedQueryTimeout -gt 0) {
+                $QueryTimeout = $parsedQueryTimeout
+            }
+            else {
+                Write-Host "****WARNING: DACPACQueryTimeout value '$propQueryTimeout' is not a positive integer. Using default $QueryTimeout.****"
+            }
+        }
+    }
+    Write-Host "SQL query timeout: $QueryTimeout seconds (pre/post custom SQL scripts)"
 	
     Write-Host "Variables:       " $arrVariables.Count
     $strVariables = ""
@@ -1414,7 +1431,7 @@ function DeployDACPAC([string] $sqlPackagePath, [string] $strInstance, [string] 
             # If Present check and process PreSQL
             if (Test-Path $strRollbackDataSQLFile) {
                 Write-Host "Checking:        " $strRollbackDataSQLFile
-                $preResult = CheckAndApplySQL $strInstance $strDatabase $strRollbackDataSQLFile $strBlackList
+                $preResult = CheckAndApplySQL $strInstance $strDatabase $strRollbackDataSQLFile $strBlackList $QueryTimeout
                 if (!$preResult) {
                     throw "Error applying Rollback sql"
                 }
@@ -1430,7 +1447,7 @@ function DeployDACPAC([string] $sqlPackagePath, [string] $strInstance, [string] 
             # If Present check and process PreSQL
             if (Test-Path $strPreSQLFile) {
                 Write-Host "Checking:        " $strPreSQLFile
-                $preResult = CheckAndApplySQL $strInstance $strDatabase $strPreSQLFile $strBlackList
+                $preResult = CheckAndApplySQL $strInstance $strDatabase $strPreSQLFile $strBlackList $QueryTimeout
                 if (!$preResult) {
                     throw "Error applying pre-sql"
                 }
@@ -1466,7 +1483,7 @@ function DeployDACPAC([string] $sqlPackagePath, [string] $strInstance, [string] 
             Write-Host ""
             if (Test-Path $strPostSQLFile) {
                 Write-Host "Checking:        " $strPostSQLFile
-                $preResult = CheckAndApplySQL $strInstance $strDatabase $strPostSQLFile $strBlackList
+                $preResult = CheckAndApplySQL $strInstance $strDatabase $strPostSQLFile $strBlackList $QueryTimeout
                 if (!$preResult) {
                     throw "Error applying post-sql"
                 }
@@ -1480,7 +1497,7 @@ function DeployDACPAC([string] $sqlPackagePath, [string] $strInstance, [string] 
                 # If Present check and process ApplyDataChangeSql
                 if (Test-Path $strApplyDataSQLFile) {
                     Write-Host "Checking:        " $strApplyDataSQLFile
-                    $preResult = CheckAndApplySQL $strInstance $strDatabase $strApplyDataSQLFile $strBlackList
+                    $preResult = CheckAndApplySQL $strInstance $strDatabase $strApplyDataSQLFile $strBlackList $QueryTimeout
                     if (!$preResult) {
                         throw "Error applying Data Changes-sql"
                     }
@@ -1494,7 +1511,7 @@ function DeployDACPAC([string] $sqlPackagePath, [string] $strInstance, [string] 
 					 if (Test-Path $strEnvironmentPostSQLFile)
 					 {
 						 Write-Host "Checking:        " $strEnvironmentPostSQLFile
-						 $preResult = CheckAndApplySQL $strInstance $strDatabase $strEnvironmentPostSQLFile $strBlackList
+						 $preResult = CheckAndApplySQL $strInstance $strDatabase $strEnvironmentPostSQLFile $strBlackList $QueryTimeout
 						 if (!$preResult)
 						 {
 							 throw "Error applying $strEnvironmentPostSQLFile-sql"
@@ -1610,7 +1627,7 @@ function ActionDACPAC([string] $strAction, [string] $sqlPackagePath, [string] $s
     return $bolReturn
 }
 
-function CheckAndApplySQL([string] $strInstance, [string] $strDatabase, [string] $strSQLFile, [string] $strBlackList) {
+function CheckAndApplySQL([string] $strInstance, [string] $strDatabase, [string] $strSQLFile, [string] $strBlackList, [int] $QueryTimeout = 3600) {
     $bolReturn = $false
     $bolBlackStatements = $false	
     if ($strBlackList.Length -gt 0) {
@@ -1639,7 +1656,7 @@ function CheckAndApplySQL([string] $strInstance, [string] $strDatabase, [string]
         if (!$bolBlackStatements) {
             Write-Host "Applying:        " $strSQLFile
             try {
-                Invoke-Sqlcmd -ServerInstance $strInstance -Database $strDatabase -InputFile $strSQLFile  -QueryTimeout 3600 -TrustServerCertificate -ErrorAction 'Stop' -Verbose 
+                Invoke-Sqlcmd -ServerInstance $strInstance -Database $strDatabase -InputFile $strSQLFile  -QueryTimeout $QueryTimeout -TrustServerCertificate -ErrorAction 'Stop' -Verbose 
                 $bolReturn = $true
             }
             catch {
