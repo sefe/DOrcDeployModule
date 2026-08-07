@@ -69,8 +69,8 @@ stages:
               script: |
                 Set-Location '$(Pipeline.Workspace)\module-drop'
                 Set-PSRepository -Name PowerShellModules `
-                  -SourceLocation 'https://proget.sefe.eu:8143/nuget/PowerShellModules/' `
-                  -PublishLocation 'https://proget.sefe.eu:8143/nuget/PowerShellModules/'
+                  -SourceLocation '$(PowerShellModulesRepositoryUrl)' `
+                  -PublishLocation '$(PowerShellModulesRepositoryUrl)'
                 Publish-Module `
                   -Name '.\DOrcDeployModule.psm1' `
                   -Repository PowerShellModules `
