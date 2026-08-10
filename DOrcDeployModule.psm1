@@ -3447,14 +3447,16 @@ function CheckBackup ([string] $SourceInstance, [string] $SourceDB, [string] $Re
         AND ($type) AND msdb.dbo.backupset.server_name = '$realSQLName'
         ORDER BY
         msdb.dbo.backupset.backup_finish_date desc" -ServerInstance "$SourceInstance" -TrustServerCertificate
+	$guidPattern = '^\{?[0-9A-Fa-f]{8}-([0-9A-Fa-f]{4}-){3}[0-9A-Fa-f]{12}\}?$'
 	Write-Host "CheckBackup full path:" $fullbackpath.path
-	if (!([string]::IsNullOrEmpty($fullbackpath))) {
+	if (!([string]::IsNullOrEmpty($fullbackpath.path))) {
+		$fullPathType = if ($fullbackpath.path -match $guidPattern) { 'CommvaultBackup' } else { 'filesharebackup' }
+		Write-Host "CheckBackup full path type:" $fullPathType
 		if ($RestoreMode -eq "latest"){
-			if (Test-Path $fullbackpath.path) { return $true }
-				else {return $false}
+			return [PSCustomObject]@{ IsValid = $true; FullPath = $fullbackpath.path; FullPathType = $fullPathType; IncPath = $null; IncPathType = $null }
 		}
 	}
-	else {return $false}
+	else { return [PSCustomObject]@{ IsValid = $false; FullPath = $null; FullPathType = $null; IncPath = $null; IncPathType = $null } }
     if ($RestoreMode -eq "now" -or $RestoreMode -eq "pit"){
         $type = $inc
         $incbackpath =  Invoke-Sqlcmd -Query "USE master SELECT top(1)
@@ -3467,11 +3469,12 @@ function CheckBackup ([string] $SourceInstance, [string] $SourceDB, [string] $Re
 			ORDER BY
 			msdb.dbo.backupset.backup_finish_date desc" -ServerInstance "$SourceInstance" -TrustServerCertificate
 		Write-Host "CheckBackup inc path:" $incbackpath.path
-		if (!([string]::IsNullOrEmpty($incbackpath))) {
-			if ((Test-Path $fullbackpath.path) -and (Test-Path $incbackpath.path)) { return $true }
-				else {return $false}
+		if (!([string]::IsNullOrEmpty($incbackpath.path))) {
+			$incPathType = if ($incbackpath.path -match $guidPattern) { 'CommvaultBackup' } else { 'filesharebackup' }
+			Write-Host "CheckBackup inc path type:" $incPathType
+			return [PSCustomObject]@{ IsValid = $true; FullPath = $fullbackpath.path; FullPathType = $fullPathType; IncPath = $incbackpath.path; IncPathType = $incPathType }
 		}
-		else {return $false}
+		else { return [PSCustomObject]@{ IsValid = $false; FullPath = $fullbackpath.path; FullPathType = $fullPathType; IncPath = $null; IncPathType = $null } }
     }
 }
 
