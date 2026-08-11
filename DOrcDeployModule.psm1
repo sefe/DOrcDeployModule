@@ -560,8 +560,6 @@ function GetDbInfoByTypeForEnv([string] $strEnvironment, [string] $strType) {
     $DorcAPIHeaders = @{
         "Authorization" = "Bearer $DOrcToken" 
     }
-    $securePassword = ConvertTo-SecureString $DorcApiAccessPassword -AsPlainText -Force
-    $credentials = New-Object System.Management.Automation.PSCredential ($DorcApiAccessAccount, $securePassword)
     $uri=$RefDataApiUrl + 'RefDataEnvironments?env=' + $strEnvironment
     $EnvId=(Invoke-RestMethod -Uri $uri -method Get -Headers $DorcAPIHeaders -ContentType 'application/json').EnvironmentId
     $uri=$RefDataApiUrl + 'RefDataEnvironmentsDetails/' + $EnvId
@@ -1286,8 +1284,6 @@ function GetServersOfType([string] $strEnvironment, [string] $strType = "") {
         "Authorization" = "Bearer $DOrcToken" 
     }
     
-    $securePassword = ConvertTo-SecureString $DorcApiAccessPassword -AsPlainText -Force
-    $credentials = New-Object System.Management.Automation.PSCredential ($DorcApiAccessAccount, $securePassword)
     $uri=$RefDataApiUrl + 'RefDataEnvironments?env=' + $strEnvironment	
     $EnvInfo = Invoke-RestMethod -Uri $uri -method Get -Headers $DorcAPIHeaders -ContentType 'application/json'
     $EnvId = $EnvInfo.EnvironmentId
@@ -2862,8 +2858,6 @@ function GetDbInfoByTypeForEnvWithArray([string] $strEnvironment, [string] $strT
     $DorcAPIHeaders = @{
         "Authorization" = "Bearer $DOrcToken" 
     }
-    $securePassword = ConvertTo-SecureString $DorcApiAccessPassword -AsPlainText -Force
-    $credentials = New-Object System.Management.Automation.PSCredential ($DorcApiAccessAccount, $securePassword)
     $uri=$RefDataApiUrl + 'RefDataEnvironments?env=' + $strEnvironment
 	write-host "GetDbInfoByTypeForEnvWithArray Uri is:" $uri
     $EnvId=(Invoke-RestMethod -Uri $uri -method Get -Headers $DorcAPIHeaders -ContentType 'application/json').EnvironmentId
